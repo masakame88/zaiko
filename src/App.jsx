@@ -100,7 +100,6 @@ const EditableCell = ({ value, type = "text", onUpdate, format, className = "" }
 };
 
 export default function App() {
-  // 確実に名称と単価が一致したもののみpriceを反映しています
   const [products, setProducts] = useState([
     { id: 'p1', name: 'KP88携帯用', price: 0, prevQuantity: 0, quantity: 2992 },
     { id: 'p2', name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 243 },
@@ -130,6 +129,19 @@ export default function App() {
   ]);
 
   const [materials, setMaterials] = useState([
+    // 追加分2：資材リスト冒頭に挿入
+    { id: 'm_add2_1', name: '共通カニパック 6本箱', company: '当社', price: 78.6, prevQuantity: 0, quantity: 0 },
+    { id: 'm_add2_2', name: '新共通カニパック2021 36本箱', company: '当社', price: 88, prevQuantity: 0, quantity: 247 },
+    { id: 'm_add2_3', name: '中仕切り', company: '当社', price: 5.6, prevQuantity: 0, quantity: 4200 },
+    { id: 'm_add2_4', name: 'カニパックスーＡ６０ｇ ６本箱', company: '当社', price: 82.2, prevQuantity: 0, quantity: 353 },
+    { id: 'm_add2_5', name: 'カニパックスーＡ６０ｇ シュリンク', company: '当社', price: 4, prevQuantity: 0, quantity: 3036 },
+    { id: 'm_add2_6', name: 'カニパックスーＡ６０ｇ 36本箱', company: '当社', price: 60, prevQuantity: 0, quantity: 95 },
+    { id: 'm_add2_7', name: 'カニパックスーＡ６０ｇ スプーン', company: '当社', price: 2, prevQuantity: 0, quantity: 8200 },
+    { id: 'm_add2_8', name: 'カニパック２２８０ 6本箱', company: '当社', price: 170, prevQuantity: 0, quantity: 0 },
+    { id: 'm_add2_9', name: 'カニパック２８０ 化粧箱', company: '当社', price: 88, prevQuantity: 0, quantity: 0 },
+    { id: 'm_add2_10', name: 'カニパック ８８携帯用 袋 2025', company: '当社', price: 33.5, prevQuantity: 0, quantity: 0 },
+    { id: 'm_add2_11', name: 'ウキシマKP88携帯袋', company: '当社', price: 33.5, prevQuantity: 0, quantity: 2300 },
+    // 既存リスト
     { id: 'm1', name: 'ダンボール144入', company: '当社', price: 0, prevQuantity: 0, quantity: 0 },
     { id: 'm2', name: '白ダンボール(60サイズ)', company: '当社', price: 0, prevQuantity: 0, quantity: 0 },
     { id: 'm3', name: 'ウキシマKP88携帯袋', company: '当社', price: 0, prevQuantity: 0, quantity: 0 },
