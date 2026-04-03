@@ -306,13 +306,15 @@ export default function App() {
     // 数値をカンマ区切りにする関数
     const formatNumber = (num) => String(num.toLocaleString());
     
-    // 対象年月の成形 (例: 2026-04 -> 2026年4月)
-    const [year, month] = targetMonth.split('-');
-    const formattedDate = `${year}年${Number(month)}月分`;
+    // 対象年月の前月を計算 (集計月 2026-04 -> タイトル 2026年3月)
+    const [y, m] = targetMonth.split('-').map(Number);
+    const date = new Date(y, m - 1, 1); // JSのDate月は0から始まる
+    date.setMonth(date.getMonth() - 1); // 前月にする
+    const titleMonthString = `${date.getFullYear()}年${date.getMonth() + 1}月分`;
 
     // タイトルと集計月の出力
-    let csvContent = `${escapeCSV(formattedDate + " 在庫報告書")}\n`;
-    csvContent += `集計月,${escapeCSV(targetMonth)}\n\n`;
+    let csvContent = `${escapeCSV(titleMonthString + " 在庫報告書")}\n`;
+    csvContent += `集計基準月,${escapeCSV(targetMonth)}\n\n`;
     
     // 集計サマリーの出力
     csvContent += `【集計サマリー】\n`;
@@ -351,7 +353,7 @@ export default function App() {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `在庫表_${targetMonth}.csv`);
+    link.setAttribute("download", `在庫表_${titleMonthString}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
