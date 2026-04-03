@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Package, Layers, Building2, Plus, Trash2, DollarSign, Wallet, Store, Briefcase, Calendar, Shapes, Edit2 } from 'lucide-react';
+import { Package, Layers, Building2, Plus, Trash2, DollarSign, Wallet, Store, Briefcase, Calendar, Shapes, Edit2, Download } from 'lucide-react';
 
 // リスト上で数量を直接編集するためのコンポーネント
 const QuantityInput = ({ value, onUpdate }) => {
@@ -209,6 +209,60 @@ export default function App() {
     setMaterials(materials.map(m => m.id === id ? { ...m, ...updates } : m));
   };
 
+  // CSV出力機能
+  const exportToCSV = () => {
+    // BOM（Excelで文字化けを防ぐため）
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    
+    // カンマなどを含む文字列をエスケープする関数
+    const escapeCSV = (str) => `"${String(str).replace(/"/g, '""')}"`;
+    
+    // 集計月の出力
+    let csvContent = `集計月,${escapeCSV(targetMonth)}\n\n`;
+    
+    // 【追加】集計サマリーの出力
+    csvContent += `【集計サマリー】\n`;
+    csvContent += `項目,金額\n`;
+    csvContent += `総合計金額,${escapeCSV(totals.grandTotal)}\n\n`;
+    
+    csvContent += `商品 合計,${escapeCSV(totals.products)}\n\n`;
+    
+    csvContent += `資材 合計,${escapeCSV(totals.materials)}\n`;
+    csvContent += `├ 当社,${escapeCSV(totals.materialsOur)}\n`;
+    csvContent += `├ ウキシマメディカル,${escapeCSV(totals.materialsA)}\n`;
+    csvContent += `└ 中日本カプセル,${escapeCSV(totals.materialsB)}\n\n`;
+
+    csvContent += `原材料 合計,${escapeCSV(totals.rawMaterials)}\n`;
+    csvContent += `├ 当社,${escapeCSV(totals.rawMaterialsOur)}\n`;
+    csvContent += `├ ウキシマメディカル,${escapeCSV(totals.rawMaterialsA)}\n`;
+    csvContent += `└ 中日本カプセル,${escapeCSV(totals.rawMaterialsB)}\n\n`;
+
+    // 明細データの出力
+    csvContent += `【明細データ】\n`;
+    csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額\n";
+    
+    products.forEach(p => {
+      csvContent += `${escapeCSV('商品')},${escapeCSV(p.name)},${escapeCSV('-')},${escapeCSV(p.price)},${escapeCSV(p.prevQuantity)},${escapeCSV(p.quantity)},${escapeCSV(p.price * p.quantity)}\n`;
+    });
+    
+    rawMaterials.forEach(r => {
+      csvContent += `${escapeCSV('原材料')},${escapeCSV(r.name)},${escapeCSV(r.company)},${escapeCSV(r.price)},${escapeCSV(r.prevQuantity)},${escapeCSV(r.quantity)},${escapeCSV(r.price * r.quantity)}\n`;
+    });
+    
+    materials.forEach(m => {
+      csvContent += `${escapeCSV('資材')},${escapeCSV(m.name)},${escapeCSV(m.company)},${escapeCSV(m.price)},${escapeCSV(m.prevQuantity)},${escapeCSV(m.quantity)},${escapeCSV(m.price * m.quantity)}\n`;
+    });
+    
+    const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `在庫表_${targetMonth}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 font-sans">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -219,18 +273,28 @@ export default function App() {
             <Briefcase className="w-8 h-8 text-indigo-600" />
             <h1 className="text-2xl font-bold text-slate-900">在庫表</h1>
           </div>
-          <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-lg border border-slate-300 shadow-sm hover:border-indigo-300 transition-colors">
-            <Calendar className="w-5 h-5 text-slate-500" />
-            <label htmlFor="target-month" className="text-sm font-medium text-slate-700 whitespace-nowrap">
-              集計月:
-            </label>
-            <input
-              id="target-month"
-              type="month"
-              value={targetMonth}
-              onChange={(e) => setTargetMonth(e.target.value)}
-              className="outline-none bg-transparent font-bold text-slate-800 focus:text-indigo-600 transition-colors cursor-pointer"
-            />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={exportToCSV}
+              className="flex items-center space-x-1 bg-white px-3 py-2 rounded-lg border border-slate-300 shadow-sm hover:border-indigo-300 hover:text-indigo-600 transition-colors text-sm font-medium text-slate-700"
+              title="現在のデータをCSV形式でダウンロード"
+            >
+              <Download className="w-4 h-4" />
+              <span>CSV出力</span>
+            </button>
+            <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-lg border border-slate-300 shadow-sm hover:border-indigo-300 transition-colors">
+              <Calendar className="w-5 h-5 text-slate-500" />
+              <label htmlFor="target-month" className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                集計月:
+              </label>
+              <input
+                id="target-month"
+                type="month"
+                value={targetMonth}
+                onChange={(e) => setTargetMonth(e.target.value)}
+                className="outline-none bg-transparent font-bold text-slate-800 focus:text-indigo-600 transition-colors cursor-pointer"
+              />
+            </div>
           </div>
         </header>
 
@@ -439,89 +503,7 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
                       <th className="px-6 py-3 font-medium">品名</th>
-                      <th className="px-6 py-3 font-medium text-right whitespace-nowrap">数量推移 (前月 ➔ 今月)</th>
-                      <th className="px-6 py-3 font-medium text-right">単価</th>
-                      <th className="px-6 py-3 font-medium text-right">合計金額</th>
-                      <th className="px-6 py-3 font-medium text-center w-20">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {products.length === 0 ? (
-                      <tr>
-                        <td colSpan="5" className="px-6 py-8 text-center text-slate-400">商品が登録されていません</td>
-                      </tr>
-                    ) : (
-                      products.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-3 text-slate-800">
-                            <EditableCell 
-                              value={item.name} 
-                              onUpdate={(newName) => updateProduct(item.id, { name: newName })} 
-                            />
-                          </td>
-                          <td className="px-6 py-3 text-right whitespace-nowrap flex items-center justify-end">
-                            <span className="text-slate-400 text-sm inline-block w-8 text-right">{item.prevQuantity}</span>
-                            <span className="mx-2 text-slate-300">➔</span>
-                            <QuantityInput 
-                              value={item.quantity} 
-                              onUpdate={(newQuantity) => updateProduct(item.id, { prevQuantity: item.quantity, quantity: newQuantity })} 
-                            />
-                          </td>
-                          <td className="px-6 py-3 text-right text-slate-600">
-                            <EditableCell 
-                              value={item.price} 
-                              type="number"
-                              format={formatCurrency}
-                              onUpdate={(newPrice) => updateProduct(item.id, { price: newPrice })} 
-                            />
-                          </td>
-                          <td className="px-6 py-3 text-right font-bold text-slate-800">{formatCurrency(item.price * item.quantity)}</td>
-                          <td className="px-6 py-3 text-center">
-                            <button onClick={() => removeProduct(item.id)} className="text-slate-400 hover:text-red-500 transition-colors p-1 rounded-md hover:bg-red-50">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* 資材リスト */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="bg-amber-50 px-6 py-4 border-b border-amber-100 flex items-center justify-between">
-                <h3 className="font-bold text-amber-800 flex items-center">
-                  <Layers className="w-5 h-5 mr-2" />
-                  資材リスト
-                </h3>
-                <span className="text-amber-600 font-semibold">{formatCurrency(totals.materials)}</span>
-              </div>
-
-              {/* 会社フィルタータブ */}
-              <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50 flex space-x-2">
-                {['すべて', '当社', 'ウキシマメディカル', '中日本カプセル'].map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setMaterialFilter(f)}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                      materialFilter === f 
-                        ? 'bg-amber-100 text-amber-800' 
-                        : 'text-slate-500 hover:bg-slate-100'
-                    }`}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
-                      <th className="px-6 py-3 font-medium">品名</th>
-                      {materialFilter === 'すべて' && <th className="px-6 py-3 font-medium text-center">取扱会社</th>}
+                      {materialFilter === 'すべて' && <th className="px-6 py-3 font-medium text-center whitespace-nowrap">取扱会社</th>}
                       <th className="px-6 py-3 font-medium text-right whitespace-nowrap">数量推移 (前月 ➔ 今月)</th>
                       <th className="px-6 py-3 font-medium text-right">単価</th>
                       <th className="px-6 py-3 font-medium text-right">合計金額</th>
@@ -545,7 +527,7 @@ export default function App() {
                             />
                           </td>
                           {materialFilter === 'すべて' && (
-                            <td className="px-6 py-3 text-center">
+                            <td className="px-6 py-3 text-center whitespace-nowrap">
                               <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
                                 item.company === '当社' ? 'bg-indigo-100 text-indigo-700' :
                                 item.company === 'ウキシマメディカル' ? 'bg-blue-100 text-blue-700' :
@@ -617,7 +599,7 @@ export default function App() {
                   <thead>
                     <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-200">
                       <th className="px-6 py-3 font-medium">品名</th>
-                      {rawMaterialFilter === 'すべて' && <th className="px-6 py-3 font-medium text-center">取扱会社</th>}
+                      {rawMaterialFilter === 'すべて' && <th className="px-6 py-3 font-medium text-center whitespace-nowrap">取扱会社</th>}
                       <th className="px-6 py-3 font-medium text-right whitespace-nowrap">数量推移 (前月 ➔ 今月)</th>
                       <th className="px-6 py-3 font-medium text-right">単価</th>
                       <th className="px-6 py-3 font-medium text-right">合計金額</th>
@@ -641,7 +623,7 @@ export default function App() {
                             />
                           </td>
                           {rawMaterialFilter === 'すべて' && (
-                            <td className="px-6 py-3 text-center">
+                            <td className="px-6 py-3 text-center whitespace-nowrap">
                               <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
                                 item.company === '当社' ? 'bg-indigo-100 text-indigo-700' :
                                 item.company === 'ウキシマメディカル' ? 'bg-blue-100 text-blue-700' :
