@@ -303,41 +303,48 @@ export default function App() {
     
     // カンマなどを含む文字列をエスケープする関数
     const escapeCSV = (str) => `"${String(str).replace(/"/g, '""')}"`;
+    // 数値をカンマ区切りにする関数
+    const formatNumber = (num) => String(num.toLocaleString());
     
-    // 集計月の出力
-    let csvContent = `集計月,${escapeCSV(targetMonth)}\n\n`;
+    // 対象年月の成形 (例: 2026-04 -> 2026年4月)
+    const [year, month] = targetMonth.split('-');
+    const formattedDate = `${year}年${Number(month)}月分`;
+
+    // タイトルと集計月の出力
+    let csvContent = `${escapeCSV(formattedDate + " 在庫報告書")}\n`;
+    csvContent += `集計月,${escapeCSV(targetMonth)}\n\n`;
     
     // 集計サマリーの出力
     csvContent += `【集計サマリー】\n`;
     csvContent += `項目,金額\n`;
-    csvContent += `総合計金額,${escapeCSV(totals.grandTotal)}\n\n`;
+    csvContent += `総合計金額,${escapeCSV(formatNumber(totals.grandTotal))}\n\n`;
     
-    csvContent += `商品 合計,${escapeCSV(totals.products)}\n\n`;
+    csvContent += `商品 合計,${escapeCSV(formatNumber(totals.products))}\n\n`;
     
-    csvContent += `資材 合計,${escapeCSV(totals.materials)}\n`;
-    csvContent += `├ 当社,${escapeCSV(totals.materialsOur)}\n`;
-    csvContent += `├ ウキシマメディカル,${escapeCSV(totals.materialsA)}\n`;
-    csvContent += `└ 中日本カプセル,${escapeCSV(totals.materialsB)}\n\n`;
+    csvContent += `資材 合計,${escapeCSV(formatNumber(totals.materials))}\n`;
+    csvContent += `├ 当社,${escapeCSV(formatNumber(totals.materialsOur))}\n`;
+    csvContent += `├ ウキシマメディカル,${escapeCSV(formatNumber(totals.materialsA))}\n`;
+    csvContent += `└ 中日本カプセル,${escapeCSV(formatNumber(totals.materialsB))}\n\n`;
 
-    csvContent += `原材料 合計,${escapeCSV(totals.rawMaterials)}\n`;
-    csvContent += `├ 当社,${escapeCSV(totals.rawMaterialsOur)}\n`;
-    csvContent += `├ ウキシマメディカル,${escapeCSV(totals.rawMaterialsA)}\n`;
-    csvContent += `└ 中日本カプセル,${escapeCSV(totals.rawMaterialsB)}\n\n`;
+    csvContent += `原材料 合計,${escapeCSV(formatNumber(totals.rawMaterials))}\n`;
+    csvContent += `├ 当社,${escapeCSV(formatNumber(totals.rawMaterialsOur))}\n`;
+    csvContent += `├ ウキシマメディカル,${escapeCSV(formatNumber(totals.rawMaterialsA))}\n`;
+    csvContent += `└ 中日本カプセル,${escapeCSV(formatNumber(totals.rawMaterialsB))}\n\n`;
 
     // 明細データの出力
     csvContent += `【明細データ】\n`;
     csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額\n";
     
     products.forEach(p => {
-      csvContent += `${escapeCSV('商品')},${escapeCSV(p.name)},${escapeCSV('-')},${escapeCSV(p.price)},${escapeCSV(p.prevQuantity)},${escapeCSV(p.quantity)},${escapeCSV(p.price * p.quantity)}\n`;
+      csvContent += `${escapeCSV('商品')},${escapeCSV(p.name)},${escapeCSV('-')},${escapeCSV(formatNumber(p.price))},${escapeCSV(formatNumber(p.prevQuantity))},${escapeCSV(formatNumber(p.quantity))},${escapeCSV(formatNumber(p.price * p.quantity))}\n`;
     });
     
     rawMaterials.forEach(r => {
-      csvContent += `${escapeCSV('原材料')},${escapeCSV(r.name)},${escapeCSV(r.company)},${escapeCSV(r.price)},${escapeCSV(r.prevQuantity)},${escapeCSV(r.quantity)},${escapeCSV(r.price * r.quantity)}\n`;
+      csvContent += `${escapeCSV('原材料')},${escapeCSV(r.name)},${escapeCSV(r.company)},${escapeCSV(formatNumber(r.price))},${escapeCSV(formatNumber(r.prevQuantity))},${escapeCSV(formatNumber(r.quantity))},${escapeCSV(formatNumber(r.price * r.quantity))}\n`;
     });
     
     materials.forEach(m => {
-      csvContent += `${escapeCSV('資材')},${escapeCSV(m.name)},${escapeCSV(m.company)},${escapeCSV(m.price)},${escapeCSV(m.prevQuantity)},${escapeCSV(m.quantity)},${escapeCSV(m.price * m.quantity)}\n`;
+      csvContent += `${escapeCSV('資材')},${escapeCSV(m.name)},${escapeCSV(m.company)},${escapeCSV(formatNumber(m.price))},${escapeCSV(formatNumber(m.prevQuantity))},${escapeCSV(formatNumber(m.quantity))},${escapeCSV(formatNumber(m.price * m.quantity))}\n`;
     });
     
     const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
