@@ -104,13 +104,13 @@ export default function App() {
     { id: '2', name: 'デザインマグカップ', price: 800, prevQuantity: 8, quantity: 10 }
   ]);
   const [rawMaterials, setRawMaterials] = useState([
-    { id: '6', name: 'オーガニックコットン生地', company: 'A社', price: 1200, prevQuantity: 20, quantity: 15 },
-    { id: '7', name: '染料（インディゴ）', company: 'B社', price: 2500, prevQuantity: 5, quantity: 5 }
+    { id: '6', name: 'オーガニックコットン生地', company: 'ウキシマメディカル', price: 1200, prevQuantity: 20, quantity: 15 },
+    { id: '7', name: '染料（インディゴ）', company: '中日本カプセル', price: 2500, prevQuantity: 5, quantity: 5 }
   ]);
   const [materials, setMaterials] = useState([
     { id: '3', name: '梱包用段ボール', company: '当社', price: 100, prevQuantity: 60, quantity: 50 },
-    { id: '4', name: 'パッケージ印刷用紙', company: 'A社', price: 20, prevQuantity: 500, quantity: 600 },
-    { id: '5', name: '特殊コーティング剤', company: 'B社', price: 5000, prevQuantity: 4, quantity: 5 }
+    { id: '4', name: 'パッケージ印刷用紙', company: 'ウキシマメディカル', price: 20, prevQuantity: 500, quantity: 600 },
+    { id: '5', name: '特殊コーティング剤', company: '中日本カプセル', price: 5000, prevQuantity: 4, quantity: 5 }
   ]);
 
   // フォームの状態
@@ -118,7 +118,7 @@ export default function App() {
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [quantity, setQuantity] = useState('');
-  const [company, setCompany] = useState('当社'); // '当社' | 'A社' | 'B社'
+  const [company, setCompany] = useState('当社'); // '当社' | 'ウキシマメディカル' | '中日本カプセル'
 
   // 対象年月の状態（初期値は現在の年月）
   const [targetMonth, setTargetMonth] = useState(() => {
@@ -136,12 +136,12 @@ export default function App() {
     const rawMaterialsTotal = rawMaterials.reduce((sum, r) => sum + (r.price * r.quantity), 0);
     
     const rawMaterialsOur = rawMaterials.filter(r => r.company === '当社').reduce((sum, r) => sum + (r.price * r.quantity), 0);
-    const rawMaterialsA = rawMaterials.filter(r => r.company === 'A社').reduce((sum, r) => sum + (r.price * r.quantity), 0);
-    const rawMaterialsB = rawMaterials.filter(r => r.company === 'B社').reduce((sum, r) => sum + (r.price * r.quantity), 0);
+    const rawMaterialsA = rawMaterials.filter(r => r.company === 'ウキシマメディカル').reduce((sum, r) => sum + (r.price * r.quantity), 0);
+    const rawMaterialsB = rawMaterials.filter(r => r.company === '中日本カプセル').reduce((sum, r) => sum + (r.price * r.quantity), 0);
 
     const materialsOur = materials.filter(m => m.company === '当社').reduce((sum, m) => sum + (m.price * m.quantity), 0);
-    const materialsA = materials.filter(m => m.company === 'A社').reduce((sum, m) => sum + (m.price * m.quantity), 0);
-    const materialsB = materials.filter(m => m.company === 'B社').reduce((sum, m) => sum + (m.price * m.quantity), 0);
+    const materialsA = materials.filter(m => m.company === 'ウキシマメディカル').reduce((sum, m) => sum + (m.price * m.quantity), 0);
+    const materialsB = materials.filter(m => m.company === '中日本カプセル').reduce((sum, m) => sum + (m.price * m.quantity), 0);
     
     const materialsTotal = materialsOur + materialsA + materialsB;
 
@@ -217,7 +217,7 @@ export default function App() {
         <header className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-4">
           <div className="flex items-center space-x-3">
             <Briefcase className="w-8 h-8 text-indigo-600" />
-            <h1 className="text-2xl font-bold text-slate-900">在庫・資材金額管理（絵画事業外）</h1>
+            <h1 className="text-2xl font-bold text-slate-900">在庫表</h1>
           </div>
           <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-lg border border-slate-300 shadow-sm hover:border-indigo-300 transition-colors">
             <Calendar className="w-5 h-5 text-slate-500" />
@@ -271,11 +271,11 @@ export default function App() {
                 <span className="font-semibold">{formatCurrency(totals.materialsOur)}</span>
               </div>
               <div className="flex justify-between text-sm items-center">
-                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> A社</span>
+                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> ウキシマメディカル</span>
                 <span className="font-semibold">{formatCurrency(totals.materialsA)}</span>
               </div>
               <div className="flex justify-between text-sm items-center">
-                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> B社</span>
+                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> 中日本カプセル</span>
                 <span className="font-semibold">{formatCurrency(totals.materialsB)}</span>
               </div>
             </div>
@@ -297,11 +297,11 @@ export default function App() {
                 <span className="font-semibold">{formatCurrency(totals.rawMaterialsOur)}</span>
               </div>
               <div className="flex justify-between text-sm items-center">
-                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> A社</span>
+                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> ウキシマメディカル</span>
                 <span className="font-semibold">{formatCurrency(totals.rawMaterialsA)}</span>
               </div>
               <div className="flex justify-between text-sm items-center">
-                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> B社</span>
+                <span className="flex items-center text-slate-600"><Building2 className="w-4 h-4 mr-1 text-slate-400"/> 中日本カプセル</span>
                 <span className="font-semibold">{formatCurrency(totals.rawMaterialsB)}</span>
               </div>
             </div>
@@ -368,8 +368,8 @@ export default function App() {
                       className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
                     >
                       <option value="当社">当社</option>
-                      <option value="A社">A社</option>
-                      <option value="B社">B社</option>
+                      <option value="ウキシマメディカル">ウキシマメディカル</option>
+                      <option value="中日本カプセル">中日本カプセル</option>
                     </select>
                   </div>
                 )}
@@ -501,7 +501,7 @@ export default function App() {
 
               {/* 会社フィルタータブ */}
               <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50 flex space-x-2">
-                {['すべて', '当社', 'A社', 'B社'].map(f => (
+                {['すべて', '当社', 'ウキシマメディカル', '中日本カプセル'].map(f => (
                   <button
                     key={f}
                     onClick={() => setMaterialFilter(f)}
@@ -548,7 +548,7 @@ export default function App() {
                             <td className="px-6 py-3 text-center">
                               <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
                                 item.company === '当社' ? 'bg-indigo-100 text-indigo-700' :
-                                item.company === 'A社' ? 'bg-blue-100 text-blue-700' :
+                                item.company === 'ウキシマメディカル' ? 'bg-blue-100 text-blue-700' :
                                 'bg-purple-100 text-purple-700'
                               }`}>
                                 {item.company}
@@ -597,7 +597,7 @@ export default function App() {
 
               {/* 会社フィルタータブ */}
               <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50 flex space-x-2">
-                {['すべて', '当社', 'A社', 'B社'].map(f => (
+                {['すべて', '当社', 'ウキシマメディカル', '中日本カプセル'].map(f => (
                   <button
                     key={f}
                     onClick={() => setRawMaterialFilter(f)}
@@ -644,7 +644,7 @@ export default function App() {
                             <td className="px-6 py-3 text-center">
                               <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
                                 item.company === '当社' ? 'bg-indigo-100 text-indigo-700' :
-                                item.company === 'A社' ? 'bg-blue-100 text-blue-700' :
+                                item.company === 'ウキシマメディカル' ? 'bg-blue-100 text-blue-700' :
                                 'bg-purple-100 text-purple-700'
                               }`}>
                                 {item.company}
