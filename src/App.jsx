@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Package, Layers, Building2, Plus, Trash2, DollarSign, Wallet, 
-  Store, Briefcase, Calendar, Shapes, Edit2, Download, X, 
+  Package, Layers, Plus, Trash2, Wallet, 
+  Briefcase, Calendar, Shapes, Edit2, Download, X, 
   GripVertical, Cloud, Check, User, RefreshCw, AlertCircle,
-  CloudDownload, AlertTriangle, UploadCloud
+  Upload, Database, RotateCcw, AlertTriangle
 } from 'lucide-react';
 
 // Firebase imports
@@ -12,7 +12,7 @@ import {
   getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
 } from 'firebase/auth';
 import { 
-  getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, 
+  getFirestore, collection, doc, updateDoc, deleteDoc, 
   onSnapshot, query, addDoc, writeBatch, getDocs
 } from 'firebase/firestore';
 
@@ -23,44 +23,11 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-system-v2';
 
-// --- アップロードされたCSVから読み取れた最新の初期データ ---
+// --- 過去のデータを完全にリセット（一切のノイズを含まない純白のキャンバス） ---
 const INITIAL_DATA = {
-  products: [
-    { name: 'KP88携帯用', price: 267.3, prevQuantity: 0, quantity: 2992 },
-    { name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 243 },
-    { name: 'カニパック88', price: 1211.5, prevQuantity: 0, quantity: 660 },
-    { name: 'カニパック 90', price: 982.8, prevQuantity: 57, quantity: 572 },
-    { name: 'KPKP280粒', price: 1345.1, prevQuantity: 0, quantity: 240 },
-    { name: 'カニパックスA 60g', price: 1290, quantity: 445, prevQuantity: 0 },
-    { name: 'KPKP 21-S', price: 1437, quantity: 81, prevQuantity: 0 },
-    { name: 'KPKP 21-H', price: 993.1, quantity: 199, prevQuantity: 0 },
-    { name: 'カニパックアレ 100ml', price: 1040, quantity: 168, prevQuantity: 0 },
-    { name: 'カニパックLR', price: 3253, quantity: 397, prevQuantity: 0 },
-    { name: 'カニパックKR', price: 1670, quantity: 66, prevQuantity: 0 },
-    { name: 'キトナコス 27.10', price: 1832.6, quantity: 131, prevQuantity: 156 },
-    { name: '缶スタンド', price: 20, quantity: 100, prevQuantity: 0 },
-    { name: '斜め刃爪切り', price: 219, quantity: 180, prevQuantity: 191 },
-    { name: '除菌ウエットレジカゴバッグ', price: 110, quantity: 69, prevQuantity: 74 },
-  ],
-  materials: [
-    { name: 'カニパック(240)6本箱36本箱シール', company: 'ウキシマメディカル', price: 2, prevQuantity: 0, quantity: 4459 },
-    { name: 'KPKP共通ホワイトキャップ', company: 'ウキシマメディカル', price: 20.2, prevQuantity: 0, quantity: 1263 },
-    { name: '新KPKP280 ボトル', company: 'ウキシマメディカル', price: 75, prevQuantity: 0, quantity: 2367 },
-    { name: 'KPKP280 ラベル', company: 'ウキシマメディカル', price: 43, prevQuantity: 1971, quantity: 53 },
-    { name: 'KPKP280 化粧箱', company: 'ウキシマメディカル', price: 88, prevQuantity: 0, quantity: 474 },
-    { name: 'KPKP280 塩ビシュ', company: 'ウキシマメディカル', price: 5.4, prevQuantity: 446, quantity: 1971 },
-    { name: 'KPKP280 6本箱', company: 'ウキシマメディカル', price: 222, prevQuantity: 53, quantity: 446 },
-    { name: 'KPKP280 36本箱シール', company: 'ウキシマメディカル', price: 0, prevQuantity: 0, quantity: 100 },
-    { name: 'カニパックKR ボトル', company: 'ウキシマメディカル', price: 39.8, prevQuantity: 0, quantity: 21 },
-    { name: 'カニパックKRボトル用シュリンク', company: 'ウキシマメディカル', price: 2.9, prevQuantity: 0, quantity: 14169 },
-    { name: '共通カニパック 6本箱', company: '当社', price: 78.6, quantity: 0, prevQuantity: 0 },
-    { name: '新共通カニパック2021 36本箱', company: '当社', price: 88, quantity: 247, prevQuantity: 0 },
-    { name: '中仕切り', company: '当社', price: 5.6, quantity: 4200, prevQuantity: 0 },
-  ],
-  rawMaterials: [
-    { name: 'コーヨーキトサン FH-80<カニ由来>', company: '中日本カプセル', price: 0, quantity: 0.508, prevQuantity: 0.508 },
-    { name: '天然にがり', company: 'ウキシマメディカル', price: 0, quantity: 0, prevQuantity: 0 }
-  ]
+  products: [],
+  materials: [],
+  rawMaterials: []
 };
 
 // --- Components ---
@@ -132,11 +99,12 @@ export default function App() {
   const [rawMaterials, setRawMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false); 
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false); // CSV読込モーダル用
-  const [importText, setImportText] = useState(''); // コピペされたCSVテキスト
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState('');
 
   const [type, setType] = useState('product');
   const [name, setName] = useState('');
@@ -207,8 +175,8 @@ export default function App() {
     setName(''); setPrice(''); setQuantity(''); setIsModalOpen(false);
   };
 
-  // 組み込みデータによる強制上書き機能
-  const forceSyncWithVercel = async () => {
+  // ★ クラウドのデータをVercelデータ（INITIAL_DATA）でリセット（元に戻す）する ★
+  const restoreInitialData = async () => {
     if (!user || initializing) return;
     setInitializing(true);
     try {
@@ -233,11 +201,14 @@ export default function App() {
       await insertBatch.commit();
       
       setIsSyncModalOpen(false);
-    } catch (err) { console.error("Force Sync error:", err); }
+    } catch (err) { 
+      console.error("Restore error:", err); 
+      setErrorMessage("データのリセット中にエラーが発生しました。");
+    }
     setInitializing(false);
   };
 
-  // ★ CSVテキストのパース（読込）処理 ★
+  // CSVテキストのパース
   const parseCSVText = (text) => {
     const lines = text.split('\n');
     let isDataSection = false;
@@ -246,7 +217,6 @@ export default function App() {
     for (const line of lines) {
       if (!line.trim()) continue;
 
-      // 簡易CSVパースロジック（ダブルクオート対応）
       const row = [];
       let currentVal = '';
       let inQuotes = false;
@@ -265,13 +235,11 @@ export default function App() {
 
       const cleanRow = row.map(v => v.trim());
 
-      // 「種類,品名...」のヘッダーを見つけたらデータ行開始
       if (cleanRow[0] === '種類' && cleanRow[1] === '品名') {
         isDataSection = true;
         continue;
       }
 
-      // データ行の読み取り
       if (isDataSection && cleanRow.length >= 6) {
         const typeStr = cleanRow[0];
         if (!['商品', '資材', '原材料'].includes(typeStr)) continue;
@@ -298,23 +266,20 @@ export default function App() {
     return newData;
   };
 
-  // ★ コピペされたCSVデータをクラウドに一括反映する処理 ★
   const handleImportCSV = async () => {
     if (!user || initializing || !importText.trim()) return;
     setInitializing(true);
     try {
       const parsedData = parseCSVText(importText);
       
-      // データが正しく読み取れたか確認
       if (parsedData.products.length === 0 && parsedData.materials.length === 0 && parsedData.rawMaterials.length === 0) {
-        alert("データの読み取りに失敗しました。コピーしたテキストの形式が正しいかご確認ください。");
+        setErrorMessage("データの読み取りに失敗しました。コピーしたテキストの形式が正しいかご確認ください。");
         setInitializing(false);
         return;
       }
 
       const collections = ['products', 'materials', 'rawMaterials'];
       
-      // 1. クラウドの既存データを全消去
       for (const colName of collections) {
         const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName));
         const snapshot = await getDocs(q);
@@ -325,7 +290,6 @@ export default function App() {
         }
       }
 
-      // 2. パースしたCSVデータをクラウドに書き込む
       const insertBatch = writeBatch(db);
       for (const [key, items] of Object.entries(parsedData)) {
         items.forEach((item, index) => {
@@ -339,7 +303,7 @@ export default function App() {
       setImportText('');
     } catch (err) { 
       console.error("Import CSV error:", err);
-      alert("エラーが発生しました。");
+      setErrorMessage("エラーが発生しました。時間を置いて再度お試しください。");
     }
     setInitializing(false);
   };
@@ -440,15 +404,15 @@ export default function App() {
           </div>
           
           <div className="flex flex-wrap items-center gap-2">
-            {/* ★ CSV読込（インポート）ボタン ★ */}
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-emerald-500 text-white px-3 py-2 rounded-xl hover:bg-emerald-600 transition-all text-sm font-bold shadow-md shadow-emerald-200 active:scale-95" title="CSVデータをコピペしてクラウドに完全復元します">
-              <UploadCloud className="w-4 h-4" />
+            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 hover:bg-emerald-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="任意のCSVデータを読み込みます">
+              <Upload className="w-4 h-4" />
               <span>CSV読込</span>
             </button>
 
-            {/* 組み込みデータ同期ボタン（予備） */}
-            <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-500 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-300 hover:text-amber-500 transition-all text-sm font-bold shadow-sm active:scale-95" title="システム組み込みの初期データで上書きします">
-              <CloudDownload className="w-4 h-4" />
+            {/* ★ 初期状態に戻すボタン ★ */}
+            <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="Vercelのデータにリセットします">
+              <RotateCcw className="w-4 h-4" />
+              <span>初期状態に戻す</span>
             </button>
 
             <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white px-3 py-2 rounded-xl border border-slate-300 shadow-sm hover:border-indigo-300 hover:text-indigo-600 transition-all text-sm font-bold text-slate-600 active:scale-95">
@@ -539,7 +503,7 @@ export default function App() {
                     {section.list.length === 0 ? (
                       <tr>
                         <td colSpan="7" className="px-6 py-16 text-center text-slate-300 font-bold italic tracking-widest">
-                          データがありません。右上の「CSV読込」ボタンからご自身のデータを復元してください。
+                          データがありません。右上の「初期状態に戻す」ボタンからデータを復元してください。
                         </td>
                       </tr>
                     ) : (
@@ -588,13 +552,34 @@ export default function App() {
         </div>
       </div>
 
-      {/* ★ CSVインポート（読込）用モーダル ★ */}
+      {/* エラー表示モーダル */}
+      {errorMessage && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-red-500">
+            <div className="px-6 py-4 border-b border-red-100 flex items-center bg-red-50/50">
+              <AlertCircle className="w-6 h-6 mr-3 text-red-500" />
+              <h3 className="text-lg font-black text-slate-800">エラー</h3>
+            </div>
+            <div className="p-6">
+              <p className="text-slate-600 font-bold leading-relaxed mb-6">{errorMessage}</p>
+              <button 
+                onClick={() => setErrorMessage('')} 
+                className="w-full py-4 px-6 rounded-2xl text-white font-black bg-red-500 hover:bg-red-600 shadow-xl shadow-red-200 transition-all active:scale-[0.98] flex justify-center items-center"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSVインポート（読込）用モーダル */}
       {isImportModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-emerald-500 flex flex-col max-h-[90vh]">
             <div className="px-8 py-6 border-b border-emerald-100 flex items-center justify-between bg-emerald-50/50">
               <div className="flex items-center">
-                <UploadCloud className="w-8 h-8 mr-3 text-emerald-500" />
+                <Upload className="w-8 h-8 mr-3 text-emerald-500" />
                 <h3 className="text-xl font-black text-slate-800">CSVデータを読み込む</h3>
               </div>
               <button onClick={() => setIsImportModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-white transition-all"><X className="w-6 h-6" /></button>
@@ -602,7 +587,7 @@ export default function App() {
             <div className="p-8 flex-1 overflow-y-auto">
               <div className="mb-4">
                 <p className="text-slate-600 font-bold leading-relaxed mb-2">
-                  Vercelのアプリからダウンロードした<span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mx-1">在庫表.csv</span>をテキストエディタ（メモ帳など）で開き、<br/>
+                  お手元の<span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mx-1">在庫表.csv</span>をテキストエディタ（メモ帳など）で開き、<br/>
                   中身の文字をすべて下の枠内に貼り付けてください。
                 </p>
                 <p className="text-xs text-amber-600 font-bold flex items-center bg-amber-50 p-2 rounded-lg">
@@ -630,21 +615,23 @@ export default function App() {
         </div>
       )}
 
-      {/* 組み込みデータ強制同期モーダル（予備） */}
+      {/* ★ 初期状態にリセットするモーダル ★ */}
       {isSyncModalOpen && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-amber-500">
             <div className="px-8 py-6 border-b border-amber-100 flex items-center bg-amber-50/50">
               <AlertTriangle className="w-8 h-8 mr-3 text-amber-500" />
-              <h3 className="text-xl font-black text-slate-800">システム初期データで上書きします</h3>
+              <h3 className="text-xl font-black text-slate-800">初期状態（Vercelデータ）に戻す</h3>
             </div>
             <div className="p-8">
               <p className="text-slate-600 font-bold leading-relaxed mb-6">
-                キャンバスに残っているデータを消去し、システムに組み込まれた仮のデータで上書きします。よろしいですか？
+                現在クラウド上にあるデータをすべて消去し、<br/>
+                <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">あなたが最後に整えたVercelのデータ</span><br/>
+                に完全にリセットします。よろしいですか？
               </p>
               <div className="flex space-x-4">
                 <button onClick={() => setIsSyncModalOpen(false)} className="flex-1 py-4 px-6 rounded-2xl text-slate-600 font-black bg-slate-100 hover:bg-slate-200 transition-all active:scale-[0.98]" disabled={initializing}>キャンセル</button>
-                <button onClick={forceSyncWithVercel} className="flex-1 py-4 px-6 rounded-2xl text-white font-black bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-200 transition-all active:scale-[0.98] flex justify-center items-center" disabled={initializing}>
+                <button onClick={restoreInitialData} className="flex-1 py-4 px-6 rounded-2xl text-white font-black bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-200 transition-all active:scale-[0.98] flex justify-center items-center" disabled={initializing}>
                   {initializing ? <RefreshCw className="w-6 h-6 animate-spin" /> : '上書きする'}
                 </button>
               </div>
