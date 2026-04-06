@@ -453,7 +453,21 @@ export default function App() {
     
     let csvContent = `${escapeCSV(displayMonthInfo.label + " 在庫報告書")}\n`;
     csvContent += `出力日,${escapeCSV(new Date().toLocaleDateString())}\n\n`;
-    csvContent += `【サマリー】\n総合計,${escapeCSV(formatNum(totals.grandTotal))}\n商品合計,${escapeCSV(formatNum(totals.products))}\n資材合計,${escapeCSV(formatNum(totals.materials))}\n原材料合計,${escapeCSV(formatNum(totals.rawMaterials))}\n\n`;
+    csvContent += `【サマリー】\n総合計金額,${escapeCSV(formatNum(totals.grandTotal))}\n\n`;
+    
+    csvContent += `商品 合計,${escapeCSV(formatNum(totals.products))}\n\n`;
+    
+    csvContent += `資材 合計,${escapeCSV(formatNum(totals.materials))}\n`;
+    csvContent += `├ 当社,${escapeCSV(formatNum(totals.materialsOur))}\n`;
+    csvContent += `├ ウキシマメディカル,${escapeCSV(formatNum(totals.materialsUkishima))}\n`;
+    csvContent += `└ 中日本カプセル,${escapeCSV(formatNum(totals.materialsNakanihon))}\n\n`;
+
+    csvContent += `原材料 合計,${escapeCSV(formatNum(totals.rawMaterials))}\n`;
+    csvContent += `├ 当社,${escapeCSV(formatNum(totals.rawMaterialsOur))}\n`;
+    csvContent += `├ ウキシマメディカル,${escapeCSV(formatNum(totals.rawMaterialsUkishima))}\n`;
+    csvContent += `└ 中日本カプセル,${escapeCSV(formatNum(totals.rawMaterialsNakanihon))}\n\n`;
+    
+    csvContent += "【明細データ】\n";
     csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額\n";
     
     const addRows = (list, label) => list.forEach(i => {
@@ -561,6 +575,9 @@ export default function App() {
           </div>
           
           <div className="flex flex-wrap items-center gap-2">
+            <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 hover:bg-indigo-50 transition-all text-sm font-bold shadow-sm active:scale-95">
+              <Download className="w-4 h-4" /><span>CSV出力</span>
+            </button>
             <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 hover:bg-emerald-50 transition-all text-sm font-bold shadow-sm active:scale-95">
               <Upload className="w-4 h-4" /><span>CSV読込</span>
             </button>
