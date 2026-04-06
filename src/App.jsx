@@ -24,6 +24,23 @@ let isEnvConfigured = false;
 try {
   // Vercel等でのビルドエラー（未定義変数エラー）を防ぐため、windowオブジェクト経由で安全に取得
   if (typeof window !== 'undefined' && window.__firebase_config) {
+    // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBcy2KW6nqc1RfMq7nb2fJ48WO3s7_wUS8",
+  authDomain: "zaiko-app-eb40b.firebaseapp.com",
+  projectId: "zaiko-app-eb40b",
+  storageBucket: "zaiko-app-eb40b.firebasestorage.app",
+  messagingSenderId: "608491890483",
+  appId: "1:608491890483:web:de3c39400bf9fa583f8046"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
     const firebaseConfig = JSON.parse(window.__firebase_config);
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
