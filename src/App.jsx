@@ -424,15 +424,22 @@ export default function App() {
     return { label: `${date.getFullYear()}年${date.getMonth() + 1}月分` };
   }, [targetMonth]);
 
+  // --- 各社の数値を細密に計算するロジック ---
   const totals = useMemo(() => {
     const calc = (list) => list.reduce((sum, i) => sum + (i.price * i.quantity), 0);
     const calcByCo = (list, co) => list.filter(i => i.company === co).reduce((sum, i) => sum + (i.price * i.quantity), 0);
     const p = inventory.products, m = inventory.materials, r = inventory.rawMaterials;
+    
     return {
-      products: calc(p), materials: calc(m), materialsOur: calcByCo(m, '当社'),
-      materialsExt: m.filter(i => i.company !== '当社').reduce((sum, i) => sum + (i.price * i.quantity), 0),
-      rawMaterials: calc(r), rawMaterialsOur: calcByCo(r, '当社'),
-      rawMaterialsExt: r.filter(i => i.company !== '当社').reduce((sum, i) => sum + (i.price * i.quantity), 0),
+      products: calc(p), 
+      materials: calc(m), 
+      materialsOur: calcByCo(m, '当社'),
+      materialsUkishima: calcByCo(m, 'ウキシマメディカル'),
+      materialsNakanihon: calcByCo(m, '中日本カプセル'),
+      rawMaterials: calc(r), 
+      rawMaterialsOur: calcByCo(r, '当社'),
+      rawMaterialsUkishima: calcByCo(r, 'ウキシマメディカル'),
+      rawMaterialsNakanihon: calcByCo(r, '中日本カプセル'),
       grandTotal: calc(p) + calc(m) + calc(r)
     };
   }, [inventory]);
@@ -577,8 +584,28 @@ export default function App() {
           </div>
           {[
             { label: '商品', val: totals.products, icon: Package, col: 'emerald', count: inventory.products.length },
-            { label: '資材', val: totals.materials, icon: Layers, col: 'amber', sub: [{ l: '自社', v: totals.materialsOur }, { l: '外部', v: totals.materialsExt }] },
-            { label: '原材料', val: totals.rawMaterials, icon: Shapes, col: 'blue', sub: [{ l: '自社', v: totals.rawMaterialsOur }, { l: '外部', v: totals.rawMaterialsExt }] }
+            { 
+              label: '資材', 
+              val: totals.materials, 
+              icon: Layers, 
+              col: 'amber', 
+              sub: [
+                { l: '自社', v: totals.materialsOur }, 
+                { l: 'ウキシマメディカル', v: totals.materialsUkishima },
+                { l: '中日本カプセル', v: totals.materialsNakanihon }
+              ] 
+            },
+            { 
+              label: '原材料', 
+              val: totals.rawMaterials, 
+              icon: Shapes, 
+              col: 'blue', 
+              sub: [
+                { l: '自社', v: totals.rawMaterialsOur }, 
+                { l: 'ウキシマメディカル', v: totals.rawMaterialsUkishima },
+                { l: '中日本カプセル', v: totals.rawMaterialsNakanihon }
+              ] 
+            }
           ].map(s => (
             <div key={s.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all">
               <div className="flex justify-between items-start mb-2">
