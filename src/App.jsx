@@ -173,7 +173,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [connectionStatus, setConnectionStatus] = useState('Connecting to Database...'); // 接続状態を詳細に表示
+  const [connectionStatus, setConnectionStatus] = useState('Connecting to Database...');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false); 
@@ -192,6 +192,22 @@ export default function App() {
 
   const [draggedIdx, setDraggedIdx] = useState(null);
   const [dragType, setDragType] = useState(null);
+
+  // ファイルを画面にドラッグしているかを判定する状態
+  const [isDragOverDocument, setIsDragOverDocument] = useState(false);
+
+  // ウィンドウ全体でのファイルドラッグを検知する
+  useEffect(() => {
+    const handleWindowDragOver = (e) => {
+      e.preventDefault();
+      // ファイルのドラッグである場合のみ反応する
+      if (e.dataTransfer && e.dataTransfer.types.includes("Files")) {
+        setIsDragOverDocument(true);
+      }
+    };
+    window.addEventListener("dragover", handleWindowDragOver);
+    return () => window.removeEventListener("dragover", handleWindowDragOver);
+  }, []);
 
   // Auth Listener
   useEffect(() => {
@@ -302,12 +318,12 @@ export default function App() {
     setInitializing(false);
   };
 
-  // --- 読み込み精度を極限まで高めたデータパーサー（Excelコピペにも対応） ---
-  const handleImportCSV = async () => {
-    if (!user || initializing || !importText.trim() || !isEnvConfigured) return;
+  // --- 読み込み精度を極限まで高めたデータパーサー（テキストから読み解く） ---
+  const processImportText = async (textToParse) => {
+    if (!user || initializing || !textToParse.trim() || !isEnvConfigured) return;
     setInitializing(true);
     try {
-      const lines = importText.split('\n');
+      const lines = textToParse.split('\n');
       const batch = writeBatch(db);
       let importCount = 0;
       
@@ -383,6 +399,10 @@ export default function App() {
       setErrorMessage(`読み込みエラー:\n${err.message}`);
     }
     setInitializing(false);
+  };
+
+  const handleImportCSV = async () => {
+    await processImportText(importText);
   };
 
   const handleDrop = async (e, dropIdx, listType) => {
@@ -490,6 +510,34 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 font-sans relative select-none transition-opacity duration-500">
+      
+      {/* --- CSVファイル ドラッグ＆ドロップ用 全画面オーバーレイ --- */}
+      {isDragOverDocument && (
+        <div 
+          className="fixed inset-0 bg-indigo-900/90 backdrop-blur-md z-[200] flex flex-col items-center justify-center border-8 border-indigo-500 border-dashed transition-all"
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={() => setIsDragOverDocument(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragOverDocument(false);
+            const file = e.dataTransfer.files[0];
+            if (file) {
+              const reader = new FileReader();
+              // ファイルの中身を読み取り、先ほど精密化したパーサーへ直接渡す
+              reader.onload = (event) => processImportText(event.target.result);
+              // 万が一文字化けする場合は、従来通りのコピペをご利用ください
+              reader.readAsText(file); 
+            }
+          }}
+        >
+          <div className="bg-white/10 p-12 rounded-full mb-8 animate-pulse shadow-2xl">
+            <Upload className="w-24 h-24 text-indigo-200" />
+          </div>
+          <h2 className="text-5xl font-black text-white tracking-widest mb-6 drop-shadow-lg">CSVファイルをドロップ</h2>
+          <p className="text-indigo-200 font-bold text-xl drop-shadow">ここにファイルを離すと、自動で読み込みを開始します</p>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto space-y-6">
         <header className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center space-x-4">
@@ -618,7 +666,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* エラー表示モーダル - ここには到達しないはずだが念のため残す */}
+      {/* エラー表示モーダル */}
       {errorMessage && !loading && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-sm overflow-hidden border-2 border-red-500">
@@ -631,7 +679,7 @@ export default function App() {
         </div>
       )}
 
-      {/* CSVインポートモーダル */}
+      {/* CSVインポートモーダル (手動入力用) */}
       {isImportModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-emerald-500 flex flex-col max-h-[90vh]">
@@ -642,8 +690,8 @@ export default function App() {
             <div className="p-8 flex-1 overflow-y-auto">
               <div className="mb-4">
                 <p className="text-slate-600 font-bold leading-relaxed mb-2">
-                  お手元の<span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mx-1">在庫表.csv</span>をテキストエディタで開いて貼り付けるか、<br/>
-                  <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded mx-1">Excelの表をそのままコピー</span>して貼り付けてください。
+                  <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded mx-1">画面に直接ファイルをドラッグ＆ドロップ</span>するか、<br/>
+                  以下の枠内にExcelの表をコピーして貼り付けてください。
                 </p>
                 <p className="text-xs text-amber-600 font-bold flex items-center bg-amber-50 p-2 rounded-lg">
                   <AlertCircle className="w-4 h-4 mr-1" />
