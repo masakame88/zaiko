@@ -173,6 +173,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [connectionStatus, setConnectionStatus] = useState('Connecting to Database...'); // 接続状態を詳細に表示
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false); 
@@ -195,11 +196,13 @@ export default function App() {
   // Auth Listener
   useEffect(() => {
     if (!isEnvConfigured) {
+      setConnectionStatus("設定情報が見つかりません");
       setLoading(false);
       return;
     }
     const initAuth = async () => {
       try {
+        setConnectionStatus("認証プロセスを開始...");
         if (isCanvasEnv && window.__initial_auth_token) {
           // Canvasプレビュー用認証
           await signInWithCustomToken(auth, window.__initial_auth_token);
@@ -207,11 +210,17 @@ export default function App() {
           // Vercel本番用匿名認証
           await signInAnonymously(auth);
         }
+        setConnectionStatus("認証完了。データを取得中...");
       } catch (err) { 
         console.error("Auth error:", err); 
+        let errorMsg = `認証エラー: ${err.message || err.code}`;
         if (err.code === 'auth/operation-not-allowed') {
-          setErrorMessage("Vercel環境：Firebaseの「匿名認証（Anonymous）」が有効になっていません。Firebase ConsoleのAuthentication設定を確認してください。");
+          errorMsg = "【重要】Firebaseで「匿名認証（Anonymous）」が有効になっていません。\nFirebase Console > Authentication > Sign-in method で設定してください。";
+        } else if (err.code === 'auth/configuration-not-found') {
+             errorMsg = "Firebaseのプロジェクト設定が見つかりません。設定情報（YOUR_FIREBASE_CONFIG）が正しいか確認してください。";
         }
+        setErrorMessage(errorMsg);
+        setConnectionStatus("認証に失敗しました");
       }
     };
     initAuth();
@@ -232,9 +241,12 @@ export default function App() {
         setLoading(false);
       }, (err) => {
         console.error(`Fetch error ${colName}:`, err);
+        let errorMsg = `データ取得エラー (${colName}): ${err.message || err.code}`;
         if (err.code === 'permission-denied') {
-          setErrorMessage("アクセス権限エラー。FirestoreのRulesを『テストモード』に変更してください。");
+          errorMsg = "【重要】Firestoreのアクセス権限がありません。\nFirebase Console > Firestore Database > ルールタブ で、「allow read, write: if true;」に変更してください。";
         }
+        setErrorMessage(errorMsg);
+        setConnectionStatus("データ取得に失敗しました");
       });
     });
 
@@ -285,7 +297,7 @@ export default function App() {
       setIsSyncModalOpen(false);
     } catch (err) { 
       console.error("Restore error:", err); 
-      setErrorMessage("復元エラー。Firebaseの設定と権限を確認してください。");
+      setErrorMessage(`復元エラー: ${err.message}`);
     }
     setInitializing(false);
   };
@@ -306,7 +318,24 @@ export default function App() {
       }
 
       for (const line of lines) {
-        const clean = line.split(',').map(v => v.replace(/"/g, '').trim());
+        if (!line.trim()) continue;
+        const row = [];
+        let currentVal = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            row.push(currentVal.trim());
+            currentVal = '';
+          } else {
+            currentVal += char;
+          }
+        }
+        row.push(currentVal.trim());
+        const clean = row;
+
         if (clean[0] === '種類' && clean[1] === '品名') { isDataSection = true; continue; }
         if (isDataSection && clean.length >= 6) {
           const mapping = { '商品': 'products', '資材': 'materials', '原材料': 'rawMaterials' };
@@ -314,8 +343,11 @@ export default function App() {
           if (!key) continue;
           
           batch.set(doc(getBasePath(key)), {
-            name: clean[1], company: clean[2], price: Number(clean[3].replace(/,/g, '')),
-            prevQuantity: Number(clean[4].replace(/,/g, '')), quantity: Number(clean[5].replace(/,/g, '')),
+            name: clean[1], 
+            company: clean[2] === '-' ? '' : clean[2], 
+            price: Number(clean[3].replace(/,/g, '')),
+            prevQuantity: Number(clean[4].replace(/,/g, '')), 
+            quantity: Number(clean[5].replace(/,/g, '')),
             createdAt: Date.now(), order: Date.now()
           });
         }
@@ -324,7 +356,7 @@ export default function App() {
       setIsImportModalOpen(false);
       setImportText('');
     } catch (err) { 
-      setErrorMessage("CSV読込エラー。形式を確認してください。");
+      setErrorMessage(`CSV読込エラー: ${err.message}`);
     }
     setInitializing(false);
   };
@@ -407,13 +439,27 @@ export default function App() {
     );
   }
 
-  if (loading) {
+  // エラーが発生している場合はエラーメッセージを表示しつつ、Loading画面を維持（またはエラー画面に切り替え）
+  if (loading || errorMessage) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-slate-400 font-black tracking-widest text-xs uppercase">Connecting to Database...</p>
-        </div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white p-4">
+        {errorMessage ? (
+           <div className="bg-red-50 border-2 border-red-500 rounded-3xl p-8 max-w-2xl w-full text-center shadow-xl">
+             <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+             <h3 className="text-xl font-black text-slate-800 mb-4">接続エラー</h3>
+             <p className="text-slate-700 font-bold whitespace-pre-wrap text-left bg-white p-4 rounded-xl border border-red-200">
+               {errorMessage}
+             </p>
+             <p className="mt-6 text-sm text-slate-500">
+                上記のエラー内容をご確認いただき、Firebaseの設定を修正してください。
+             </p>
+           </div>
+        ) : (
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-indigo-600 mx-auto mb-4"></div>
+            <p className="text-slate-400 font-black tracking-widest text-xs uppercase">{connectionStatus}</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -548,13 +594,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* エラー表示モーダル */}
-      {errorMessage && (
+      {/* エラー表示モーダル - ここには到達しないはずだが念のため残す */}
+      {errorMessage && !loading && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-sm overflow-hidden border-2 border-red-500">
             <div className="px-6 py-4 border-b border-red-100 flex items-center bg-red-50/50"><AlertCircle className="w-6 h-6 mr-3 text-red-500" /><h3 className="text-lg font-black">エラー</h3></div>
             <div className="p-6">
-              <p className="text-slate-600 font-bold mb-6">{errorMessage}</p>
+              <p className="text-slate-600 font-bold mb-6 whitespace-pre-wrap">{errorMessage}</p>
               <button onClick={() => setErrorMessage('')} className="w-full py-4 px-6 rounded-2xl text-white font-black bg-red-500 hover:bg-red-600 shadow-xl transition-all">閉じる</button>
             </div>
           </div>
