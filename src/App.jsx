@@ -1,10 +1,9 @@
-/* global __firebase_config, __app_id, __initial_auth_token */
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Package, Layers, Plus, Trash2, Wallet, 
   Briefcase, Calendar, Shapes, Edit2, Download, X, 
-  GripVertical, Cloud, Check, User, RefreshCw, AlertCircle,
-  Upload, Database, RotateCcw, AlertTriangle, AlertOctagon
+  GripVertical, Cloud, Check, RefreshCw, AlertCircle,
+  Upload, RotateCcw, AlertTriangle, AlertOctagon
 } from 'lucide-react';
 
 // Firebase imports
@@ -23,13 +22,13 @@ let appId = 'inventory-system-v2';
 let isEnvConfigured = false;
 
 try {
-  // Vercel等でのビルドエラーを防ぐため、安全に変数の存在をチェック
-  if (typeof __firebase_config !== 'undefined') {
-    const firebaseConfig = JSON.parse(__firebase_config);
+  // Vercel等でのビルドエラー（未定義変数エラー）を防ぐため、windowオブジェクト経由で安全に取得
+  if (typeof window !== 'undefined' && window.__firebase_config) {
+    const firebaseConfig = JSON.parse(window.__firebase_config);
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    appId = typeof __app_id !== 'undefined' ? __app_id : appId;
+    appId = window.__app_id || appId;
     isEnvConfigured = true;
   }
 } catch (e) {
@@ -47,6 +46,8 @@ const INITIAL_DATA = {
 
 const QuantityInput = ({ value, onUpdate }) => {
   const [val, setVal] = useState(value);
+  
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { setVal(value); }, [value]);
 
   const handleBlur = () => {
@@ -139,8 +140,8 @@ export default function App() {
     }
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
+        if (typeof window !== 'undefined' && window.__initial_auth_token) {
+          await signInWithCustomToken(auth, window.__initial_auth_token);
         } else {
           await signInAnonymously(auth);
         }
@@ -148,6 +149,7 @@ export default function App() {
     };
     initAuth();
     return onAuthStateChanged(auth, setUser);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -167,6 +169,7 @@ export default function App() {
     });
 
     return () => unsubscribes.forEach(unsub => unsub());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const updateItem = async (t, id, updates) => {
