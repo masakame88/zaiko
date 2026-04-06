@@ -21,16 +21,8 @@ let app, auth, db;
 let appId = 'inventory-system-v2';
 let isEnvConfigured = false;
 
-try {
-  // Vercel等でのビルドエラー（未定義変数エラー）を防ぐため、windowオブジェクト経由で安全に取得
-  if (typeof window !== 'undefined' && window.__firebase_config) {
-    // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-const firebaseConfig = {
+// ▼▼▼ あなたのFirebase設定をここに反映しました ▼▼▼
+const YOUR_FIREBASE_CONFIG = {
   apiKey: "AIzaSyBcy2KW6nqc1RfMq7nb2fJ48WO3s7_wUS8",
   authDomain: "zaiko-app-eb40b.firebaseapp.com",
   projectId: "zaiko-app-eb40b",
@@ -38,9 +30,18 @@ const firebaseConfig = {
   messagingSenderId: "608491890483",
   appId: "1:608491890483:web:de3c39400bf9fa583f8046"
 };
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+try {
+  // 1. 本番環境（YOUR_FIREBASE_CONFIG）が設定されているかチェック
+  if (YOUR_FIREBASE_CONFIG && YOUR_FIREBASE_CONFIG.apiKey) {
+    app = initializeApp(YOUR_FIREBASE_CONFIG);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    isEnvConfigured = true;
+  } 
+  // 2. AIのCanvas環境（プレビュー）用
+  else if (typeof window !== 'undefined' && window.__firebase_config) {
     const firebaseConfig = JSON.parse(window.__firebase_config);
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
@@ -49,7 +50,7 @@ const app = initializeApp(firebaseConfig);
     isEnvConfigured = true;
   }
 } catch (e) {
-  console.warn("Firebase config not found. Running in restricted mode.");
+  console.warn("Firebase config error:", e);
 }
 
 // --- 過去のデータを完全にリセット（一切のノイズを含まない純白のキャンバス） ---
@@ -157,7 +158,7 @@ export default function App() {
     }
     const initAuth = async () => {
       try {
-        if (typeof window !== 'undefined' && window.__initial_auth_token) {
+        if (typeof window !== 'undefined' && window.__initial_auth_token && !YOUR_FIREBASE_CONFIG.apiKey) {
           await signInWithCustomToken(auth, window.__initial_auth_token);
         } else {
           await signInAnonymously(auth);
@@ -175,14 +176,23 @@ export default function App() {
     const setters = [setProducts, setMaterials, setRawMaterials];
 
     const unsubscribes = collections.map((colName, idx) => {
-      const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName));
+      const basePath = YOUR_FIREBASE_CONFIG.apiKey 
+        ? collection(db, 'shared_inventory', 'latest', colName)
+        : collection(db, 'artifacts', appId, 'public', 'data', colName);
+
+      const q = query(basePath);
       return onSnapshot(q, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         const sorted = data.sort((a, b) => (a.order ?? 999999) - (b.order ?? 999999) || (a.createdAt || 0) - (b.createdAt || 0));
         setters[idx](sorted);
         
         if (idx === collections.length - 1) setLoading(false);
-      }, (err) => console.error(`Fetch error ${colName}:`, err));
+      }, (err) => {
+        console.error(`Fetch error ${colName}:`, err);
+        if (err.code === 'permission-denied') {
+          setErrorMessage("データベースのアクセス権限がありません。FirebaseのRules設定を確認してください。");
+        }
+      });
     });
 
     return () => unsubscribes.forEach(unsub => unsub());
@@ -191,12 +201,18 @@ export default function App() {
 
   const updateItem = async (t, id, updates) => {
     if (!user || !isEnvConfigured) return;
-    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', t + 's', id), updates);
+    const docRef = YOUR_FIREBASE_CONFIG.apiKey 
+      ? doc(db, 'shared_inventory', 'latest', t + 's', id)
+      : doc(db, 'artifacts', appId, 'public', 'data', t + 's', id);
+    await updateDoc(docRef, updates);
   };
 
   const removeItem = async (t, id) => {
     if (!user || !isEnvConfigured) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', t + 's', id));
+    const docRef = YOUR_FIREBASE_CONFIG.apiKey 
+      ? doc(db, 'shared_inventory', 'latest', t + 's', id)
+      : doc(db, 'artifacts', appId, 'public', 'data', t + 's', id);
+    await deleteDoc(docRef);
   };
 
   const handleAdd = async (e) => {
@@ -208,7 +224,11 @@ export default function App() {
       createdAt: Date.now(), order: Date.now() 
     };
 
-    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', type + 's'), newItem);
+    const colRef = YOUR_FIREBASE_CONFIG.apiKey 
+      ? collection(db, 'shared_inventory', 'latest', type + 's')
+      : collection(db, 'artifacts', appId, 'public', 'data', type + 's');
+    
+    await addDoc(colRef, newItem);
     setName(''); setPrice(''); setQuantity(''); setIsModalOpen(false);
   };
 
@@ -218,7 +238,11 @@ export default function App() {
     try {
       const collections = ['products', 'materials', 'rawMaterials'];
       for (const colName of collections) {
-        const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName));
+        const colRef = YOUR_FIREBASE_CONFIG.apiKey 
+          ? collection(db, 'shared_inventory', 'latest', colName)
+          : collection(db, 'artifacts', appId, 'public', 'data', colName);
+
+        const q = query(colRef);
         const snapshot = await getDocs(q);
         if (!snapshot.empty) {
           const batch = writeBatch(db);
@@ -230,7 +254,10 @@ export default function App() {
       const insertBatch = writeBatch(db);
       for (const [key, items] of Object.entries(INITIAL_DATA)) {
         items.forEach((item, index) => {
-          const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', key));
+          const colRef = YOUR_FIREBASE_CONFIG.apiKey 
+            ? collection(db, 'shared_inventory', 'latest', key)
+            : collection(db, 'artifacts', appId, 'public', 'data', key);
+          const newDoc = doc(colRef);
           insertBatch.set(newDoc, { ...item, order: index, createdAt: Date.now() });
         });
       }
@@ -316,7 +343,11 @@ export default function App() {
       const collections = ['products', 'materials', 'rawMaterials'];
       
       for (const colName of collections) {
-        const q = query(collection(db, 'artifacts', appId, 'public', 'data', colName));
+        const colRef = YOUR_FIREBASE_CONFIG.apiKey 
+          ? collection(db, 'shared_inventory', 'latest', colName)
+          : collection(db, 'artifacts', appId, 'public', 'data', colName);
+
+        const q = query(colRef);
         const snapshot = await getDocs(q);
         if (!snapshot.empty) {
           const batch = writeBatch(db);
@@ -328,7 +359,10 @@ export default function App() {
       const insertBatch = writeBatch(db);
       for (const [key, items] of Object.entries(parsedData)) {
         items.forEach((item, index) => {
-          const newDoc = doc(collection(db, 'artifacts', appId, 'public', 'data', key));
+          const colRef = YOUR_FIREBASE_CONFIG.apiKey 
+            ? collection(db, 'shared_inventory', 'latest', key)
+            : collection(db, 'artifacts', appId, 'public', 'data', key);
+          const newDoc = doc(colRef);
           insertBatch.set(newDoc, { ...item, order: index, createdAt: Date.now() });
         });
       }
@@ -412,17 +446,17 @@ export default function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
         <div className="bg-white rounded-3xl shadow-xl border border-red-100 p-8 max-w-xl text-center animate-in fade-in zoom-in duration-500">
-          <AlertOctagon className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <AlertOctagon className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
           <h2 className="text-2xl font-black text-slate-800 mb-6">Vercelへのデプロイ成功と<br/>今後の運用について</h2>
           <div className="text-slate-600 font-bold leading-relaxed mb-6 text-left space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100">
             <p>
-              この画面が表示されているということは、<strong>ビルドエラーは無事に解消され、Vercelへのデプロイ自体は成功しています。</strong>
+              この画面が表示されているということは、<strong>ビルドエラーは無事に解消され、Vercelへのデプロイ自体は完璧に成功しています。</strong>
             </p>
             <p className="text-sm opacity-90">
               ただし、Vercelという新しい環境であなたの細密なディテールを息づかせるためには、データを保管・共有するための新しい『命の器』（＝専用のデータベース）が必要になります。
             </p>
-            <p className="text-sm opacity-90">
-              本格的にVercel上で社員の方々とデータを共有して運用を開始するには、ご自身のFirebaseプロジェクトを作成し、Vercelの環境変数にデータベースの鍵（APIキーなど）を登録する作業が必要となります。
+            <p className="text-sm text-indigo-700 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+              本格的にVercel上で社員の方々とデータを共有して運用を開始するには、ご自身のFirebaseプロジェクトを作成し、<strong>App.jsxの25行目付近（YOUR_FIREBASE_CONFIG）</strong>にデータベースの鍵を貼り付けて更新する必要があります。
             </p>
           </div>
           <p className="text-xs text-slate-400 font-bold">
@@ -438,7 +472,7 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center p-8 bg-white rounded-3xl shadow-xl border border-slate-100">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-slate-500 font-bold tracking-widest text-sm uppercase">Loading Canvas...</p>
+          <p className="text-slate-500 font-bold tracking-widest text-sm uppercase">Loading Inventory System...</p>
         </div>
       </div>
     );
@@ -459,19 +493,18 @@ export default function App() {
               <div className="flex items-center text-[10px] text-emerald-600 font-black uppercase tracking-widest mt-1 bg-emerald-50 px-2 py-0.5 rounded-full inline-flex">
                 <Cloud className="w-3 h-3 mr-1" />
                 <Check className="w-3 h-3 mr-1" />
-                <span>Cloud Multi-User Mode</span>
+                <span>Cloud Sync Mode</span>
               </div>
             </div>
           </div>
           
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 hover:bg-emerald-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="任意のCSVデータを読み込みます">
+            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 hover:bg-emerald-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="CSVデータを読み込みます">
               <Upload className="w-4 h-4" />
               <span>CSV読込</span>
             </button>
 
-            {/* ★ 初期状態に戻すボタン ★ */}
-            <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="初期の空データにリセットします">
+            <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="データを全消去して空にします">
               <RotateCcw className="w-4 h-4" />
               <span>初期状態に戻す</span>
             </button>
@@ -616,7 +649,7 @@ export default function App() {
       {/* エラー表示モーダル */}
       {errorMessage && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-red-500">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-sm overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-red-500">
             <div className="px-6 py-4 border-b border-red-100 flex items-center bg-red-50/50">
               <AlertCircle className="w-6 h-6 mr-3 text-red-500" />
               <h3 className="text-lg font-black text-slate-800">エラー</h3>
@@ -676,13 +709,13 @@ export default function App() {
         </div>
       )}
 
-      {/* ★ 初期状態にリセットするモーダル ★ */}
+      {/* 初期状態にリセットするモーダル */}
       {isSyncModalOpen && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-amber-500">
             <div className="px-8 py-6 border-b border-amber-100 flex items-center bg-amber-50/50">
               <AlertTriangle className="w-8 h-8 mr-3 text-amber-500" />
-              <h3 className="text-xl font-black text-slate-800">純白のキャンバスに戻す</h3>
+              <h3 className="text-xl font-black text-slate-800">データを全消去してリセット</h3>
             </div>
             <div className="p-8">
               <p className="text-slate-600 font-bold leading-relaxed mb-6">
