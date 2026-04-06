@@ -302,31 +302,33 @@ export default function App() {
     setInitializing(false);
   };
 
+  // --- 読み込み精度を極限まで高めたデータパーサー（Excelコピペにも対応） ---
   const handleImportCSV = async () => {
     if (!user || initializing || !importText.trim() || !isEnvConfigured) return;
     setInitializing(true);
     try {
       const lines = importText.split('\n');
-      let isDataSection = false;
       const batch = writeBatch(db);
+      let importCount = 0;
       
-      // Clear current
-      for (const colName of ['products', 'materials', 'rawMaterials']) {
-        const colRef = getBasePath(colName);
-        const snap = await getDocs(query(colRef));
-        snap.docs.forEach(d => batch.delete(d.ref));
-      }
+      const parsedData = { products: [], materials: [], rawMaterials: [] };
 
       for (const line of lines) {
         if (!line.trim()) continue;
+        
+        // エクセルからのコピー（タブ区切り）か、CSV（カンマ区切り）かを自動判定
+        const separator = line.includes('\t') ? '\t' : ',';
+        
         const row = [];
         let currentVal = '';
         let inQuotes = false;
+        
+        // 1文字ずつ精密に読み取る
         for (let i = 0; i < line.length; i++) {
           const char = line[i];
           if (char === '"') {
             inQuotes = !inQuotes;
-          } else if (char === ',' && !inQuotes) {
+          } else if (char === separator && !inQuotes) {
             row.push(currentVal.trim());
             currentVal = '';
           } else {
@@ -336,27 +338,49 @@ export default function App() {
         row.push(currentVal.trim());
         const clean = row;
 
-        if (clean[0] === '種類' && clean[1] === '品名') { isDataSection = true; continue; }
-        if (isDataSection && clean.length >= 6) {
-          const mapping = { '商品': 'products', '資材': 'materials', '原材料': 'rawMaterials' };
-          const key = mapping[clean[0]];
-          if (!key) continue;
-          
-          batch.set(doc(getBasePath(key)), {
-            name: clean[1], 
-            company: clean[2] === '-' ? '' : clean[2], 
-            price: Number(clean[3].replace(/,/g, '')),
-            prevQuantity: Number(clean[4].replace(/,/g, '')), 
-            quantity: Number(clean[5].replace(/,/g, '')),
-            createdAt: Date.now(), order: Date.now()
+        const mapping = { '商品': 'products', '資材': 'materials', '原材料': 'rawMaterials' };
+        // ゴミ文字を徹底的に除外して種類を特定
+        const typeStr = clean[0] ? clean[0].replace(/['"]/g, '').trim() : '';
+        const key = mapping[typeStr];
+        
+        if (key && clean.length >= 6) {
+          parsedData[key].push({
+            name: clean[1] ? clean[1].replace(/['"]/g, '').trim() : '', 
+            company: (clean[2] === '-' || clean[2] === '"-"') ? '' : (clean[2] || '').replace(/['"]/g, '').trim(), 
+            // 単価や数量に含まれるカンマ（,）や円マークを安全に取り除いて数値化
+            price: Number((clean[3] || '0').replace(/[,¥"']/g, '')),
+            prevQuantity: Number((clean[4] || '0').replace(/[,¥"']/g, '')), 
+            quantity: Number((clean[5] || '0').replace(/[,¥"']/g, '')),
           });
+          importCount++;
         }
       }
+
+      if (importCount === 0) {
+        throw new Error("有効なデータが見つかりませんでした。\n「種類（商品/資材/原材料）」が含まれるデータ行が存在するかご確認ください。");
+      }
+
+      // --- 完璧にパースできた場合のみ、古いデータを消去して新しいデータを流し込む ---
+      for (const colName of ['products', 'materials', 'rawMaterials']) {
+        const colRef = getBasePath(colName);
+        const snap = await getDocs(query(colRef));
+        snap.docs.forEach(d => batch.delete(d.ref)); // 古い器をクリア
+
+        parsedData[colName].forEach((item, index) => {
+          batch.set(doc(colRef), {
+            ...item,
+            createdAt: Date.now() + index, // 並び順を保証
+            order: Date.now() + index
+          });
+        });
+      }
+
       await batch.commit();
       setIsImportModalOpen(false);
       setImportText('');
     } catch (err) { 
-      setErrorMessage(`CSV読込エラー: ${err.message}`);
+      console.error("CSV Import Error:", err);
+      setErrorMessage(`読み込みエラー:\n${err.message}`);
     }
     setInitializing(false);
   };
@@ -451,7 +475,7 @@ export default function App() {
                {errorMessage}
              </p>
              <p className="mt-6 text-sm text-slate-500">
-                上記のエラー内容をご確認いただき、Firebaseの設定を修正してください。
+                上記のエラー内容をご確認いただき、Firebaseの設定または入力データをご確認ください。
              </p>
            </div>
         ) : (
@@ -616,7 +640,17 @@ export default function App() {
               <button onClick={() => setIsImportModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-8 flex-1 overflow-y-auto">
-              <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={`種類,品名,取扱会社,単価,前月数量,今月数量\n商品,カニパック,-,1165.3,0,243\n...`} className="w-full h-64 p-4 border-2 border-slate-200 rounded-2xl focus:border-emerald-500 outline-none font-mono text-sm bg-slate-50/50" />
+              <div className="mb-4">
+                <p className="text-slate-600 font-bold leading-relaxed mb-2">
+                  お手元の<span className="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded mx-1">在庫表.csv</span>をテキストエディタで開いて貼り付けるか、<br/>
+                  <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded mx-1">Excelの表をそのままコピー</span>して貼り付けてください。
+                </p>
+                <p className="text-xs text-amber-600 font-bold flex items-center bg-amber-50 p-2 rounded-lg">
+                  <AlertCircle className="w-4 h-4 mr-1" />
+                  読み込むと現在のクラウドデータはすべて上書きされます。
+                </p>
+              </div>
+              <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={`種類\t品名\t取扱会社\t単価\t前月数量\t今月数量\n商品\tカニパック\t-\t1,165.3\t0\t243\n...`} className="w-full h-64 p-4 border-2 border-slate-200 rounded-2xl focus:border-emerald-500 outline-none font-mono text-sm bg-slate-50/50" />
               <button onClick={handleImportCSV} className="w-full py-4 px-6 mt-6 rounded-2xl text-white font-black bg-emerald-500 hover:bg-emerald-600 shadow-xl transition-all" disabled={initializing}>
                 {initializing ? <RefreshCw className="w-6 h-6 animate-spin" /> : 'データを一括同期する'}
               </button>
