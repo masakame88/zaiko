@@ -1,9 +1,10 @@
+/* global __firebase_config, __app_id, __initial_auth_token */
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Package, Layers, Plus, Trash2, Wallet, 
   Briefcase, Calendar, Shapes, Edit2, Download, X, 
   GripVertical, Cloud, Check, User, RefreshCw, AlertCircle,
-  Upload, Database, RotateCcw, AlertTriangle
+  Upload, Database, RotateCcw, AlertTriangle, AlertOctagon
 } from 'lucide-react';
 
 // Firebase imports
@@ -17,11 +18,23 @@ import {
 } from 'firebase/firestore';
 
 // --- Firebase Setup ---
-const firebaseConfig = JSON.parse(__firebase_config);
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'inventory-system-v2';
+let app, auth, db;
+let appId = 'inventory-system-v2';
+let isEnvConfigured = false;
+
+try {
+  // Vercel等でのビルドエラーを防ぐため、安全に変数の存在をチェック
+  if (typeof __firebase_config !== 'undefined') {
+    const firebaseConfig = JSON.parse(__firebase_config);
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+    appId = typeof __app_id !== 'undefined' ? __app_id : appId;
+    isEnvConfigured = true;
+  }
+} catch (e) {
+  console.warn("Firebase config not found. Running in restricted mode.");
+}
 
 // --- 過去のデータを完全にリセット（一切のノイズを含まない純白のキャンバス） ---
 const INITIAL_DATA = {
@@ -120,6 +133,10 @@ export default function App() {
   const [dragType, setDragType] = useState(null);
 
   useEffect(() => {
+    if (!isEnvConfigured) {
+      setLoading(false);
+      return;
+    }
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -134,7 +151,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isEnvConfigured) return;
     const collections = ['products', 'materials', 'rawMaterials'];
     const setters = [setProducts, setMaterials, setRawMaterials];
 
@@ -153,18 +170,18 @@ export default function App() {
   }, [user]);
 
   const updateItem = async (t, id, updates) => {
-    if (!user) return;
+    if (!user || !isEnvConfigured) return;
     await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', t + 's', id), updates);
   };
 
   const removeItem = async (t, id) => {
-    if (!user) return;
+    if (!user || !isEnvConfigured) return;
     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', t + 's', id));
   };
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!user || !name || !price || !quantity) return;
+    if (!user || !name || !price || !quantity || !isEnvConfigured) return;
     const newItem = {
       name, price: Number(price), prevQuantity: 0, quantity: Number(quantity),
       company: (type === 'product' ? '-' : company),
@@ -175,9 +192,8 @@ export default function App() {
     setName(''); setPrice(''); setQuantity(''); setIsModalOpen(false);
   };
 
-  // ★ クラウドのデータをVercelデータ（INITIAL_DATA）でリセット（元に戻す）する ★
   const restoreInitialData = async () => {
-    if (!user || initializing) return;
+    if (!user || initializing || !isEnvConfigured) return;
     setInitializing(true);
     try {
       const collections = ['products', 'materials', 'rawMaterials'];
@@ -208,7 +224,6 @@ export default function App() {
     setInitializing(false);
   };
 
-  // CSVテキストのパース
   const parseCSVText = (text) => {
     const lines = text.split('\n');
     let isDataSection = false;
@@ -267,7 +282,7 @@ export default function App() {
   };
 
   const handleImportCSV = async () => {
-    if (!user || initializing || !importText.trim()) return;
+    if (!user || initializing || !importText.trim() || !isEnvConfigured) return;
     setInitializing(true);
     try {
       const parsedData = parseCSVText(importText);
@@ -309,7 +324,7 @@ export default function App() {
   };
 
   const handleDrop = async (e, dropIdx, listType) => {
-    if (draggedIdx === null || dragType !== listType || draggedIdx === dropIdx) return;
+    if (draggedIdx === null || dragType !== listType || draggedIdx === dropIdx || !isEnvConfigured) return;
     const list = listType === 'product' ? products : listType === 'material' ? materials : rawMaterials;
     const newList = [...list];
     const [moved] = newList.splice(draggedIdx, 1);
@@ -372,6 +387,32 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // Vercel等の外部環境でFirebaseが設定されていない場合の画面
+  if (!isEnvConfigured) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
+        <div className="bg-white rounded-3xl shadow-xl border border-red-100 p-8 max-w-xl text-center animate-in fade-in zoom-in duration-500">
+          <AlertOctagon className="w-16 h-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-black text-slate-800 mb-6">Vercelへのデプロイ成功と<br/>今後の運用について</h2>
+          <div className="text-slate-600 font-bold leading-relaxed mb-6 text-left space-y-4 bg-slate-50 p-6 rounded-2xl border border-slate-100">
+            <p>
+              この画面が表示されているということは、<strong>ビルドエラーは無事に解消され、Vercelへのデプロイ自体は成功しています。</strong>
+            </p>
+            <p className="text-sm opacity-90">
+              ただし、Vercelという新しい環境であなたの細密なディテールを息づかせるためには、データを保管・共有するための新しい『命の器』（＝専用のデータベース）が必要になります。
+            </p>
+            <p className="text-sm opacity-90">
+              本格的にVercel上で社員の方々とデータを共有して運用を開始するには、ご自身のFirebaseプロジェクトを作成し、Vercelの環境変数にデータベースの鍵（APIキーなど）を登録する作業が必要となります。
+            </p>
+          </div>
+          <p className="text-xs text-slate-400 font-bold">
+            ※現在のデータの編集やCSVの流し込みは、引き続きAIのCanvas環境で安全に行うことができます。
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -410,7 +451,7 @@ export default function App() {
             </button>
 
             {/* ★ 初期状態に戻すボタン ★ */}
-            <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="Vercelのデータにリセットします">
+            <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 hover:text-amber-600 hover:bg-amber-50 transition-all text-sm font-bold shadow-sm active:scale-95" title="初期の空データにリセットします">
               <RotateCcw className="w-4 h-4" />
               <span>初期状態に戻す</span>
             </button>
@@ -503,7 +544,7 @@ export default function App() {
                     {section.list.length === 0 ? (
                       <tr>
                         <td colSpan="7" className="px-6 py-16 text-center text-slate-300 font-bold italic tracking-widest">
-                          データがありません。右上の「初期状態に戻す」ボタンからデータを復元してください。
+                          データがありません。右上の「CSV読込」ボタンからデータを復元してください。
                         </td>
                       </tr>
                     ) : (
@@ -621,18 +662,18 @@ export default function App() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-300 border-2 border-amber-500">
             <div className="px-8 py-6 border-b border-amber-100 flex items-center bg-amber-50/50">
               <AlertTriangle className="w-8 h-8 mr-3 text-amber-500" />
-              <h3 className="text-xl font-black text-slate-800">初期状態（Vercelデータ）に戻す</h3>
+              <h3 className="text-xl font-black text-slate-800">純白のキャンバスに戻す</h3>
             </div>
             <div className="p-8">
               <p className="text-slate-600 font-bold leading-relaxed mb-6">
                 現在クラウド上にあるデータをすべて消去し、<br/>
-                <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">あなたが最後に整えたVercelのデータ</span><br/>
+                <span className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">一切のノイズを含まない空の状態</span><br/>
                 に完全にリセットします。よろしいですか？
               </p>
               <div className="flex space-x-4">
                 <button onClick={() => setIsSyncModalOpen(false)} className="flex-1 py-4 px-6 rounded-2xl text-slate-600 font-black bg-slate-100 hover:bg-slate-200 transition-all active:scale-[0.98]" disabled={initializing}>キャンセル</button>
                 <button onClick={restoreInitialData} className="flex-1 py-4 px-6 rounded-2xl text-white font-black bg-amber-500 hover:bg-amber-600 shadow-xl shadow-amber-200 transition-all active:scale-[0.98] flex justify-center items-center" disabled={initializing}>
-                  {initializing ? <RefreshCw className="w-6 h-6 animate-spin" /> : '上書きする'}
+                  {initializing ? <RefreshCw className="w-6 h-6 animate-spin" /> : 'リセットする'}
                 </button>
               </div>
             </div>
