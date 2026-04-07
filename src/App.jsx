@@ -3,13 +3,13 @@ import {
   Package, Layers, Plus, Trash2, Wallet, 
   Briefcase, Calendar, Shapes, Edit2, Download, X, 
   GripVertical, Cloud, Check, RefreshCw, AlertCircle,
-  Upload, RotateCcw, AlertTriangle, Save
+  Upload, RotateCcw, AlertTriangle, Save, LogOut
 } from 'lucide-react';
 
 // Firebase imports
 import { initializeApp } from 'firebase/app';
 import { 
-  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
+  getAuth, signInWithCustomToken, signInWithEmailAndPassword, signOut, onAuthStateChanged 
 } from 'firebase/auth';
 import { 
   getFirestore, collection, doc, updateDoc, deleteDoc, 
@@ -161,6 +161,11 @@ export default function App() {
   const [connectionStatus, setConnectionStatus] = useState('Connecting to Database...');
   const [toastMessage, setToastMessage] = useState(''); 
 
+  // ログイン用の状態
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false); 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -179,8 +184,6 @@ export default function App() {
   const [draggedIdx, setDraggedIdx] = useState(null);
   const [dragType, setDragType] = useState(null);
   const [isDragOverDocument, setIsDragOverDocument] = useState(false);
-  
-  // 新規追加：アイコンに触れた行だけをドラッグ可能にする状態
   const [draggableRowId, setDraggableRowId] = useState(null);
 
   const showToast = (msg) => {
@@ -200,22 +203,50 @@ export default function App() {
   // Auth
   useEffect(() => {
     if (!isEnvConfigured) { setLoading(false); return; }
+    
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) {
+        setLoading(false); // 未ログイン時はローディングを解除してログイン画面を表示
+      }
+    });
+
     const initAuth = async () => {
       try {
         setConnectionStatus("認証プロセスを開始...");
         if (isCanvasEnv && window.__initial_auth_token) {
+          // AIのプレビュー環境では自動ログイン
           await signInWithCustomToken(auth, window.__initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
         }
+        // 本番環境（isCanvasEnvがfalse）では自動ログインせず、ユーザーの入力を待つ
       } catch (err) { 
         console.error("Auth error:", err); 
         setErrorMessage(`認証エラー: ${err.message || err.code}`);
+        setLoading(false);
       }
     };
     initAuth();
-    return onAuthStateChanged(auth, setUser);
+
+    return () => unsubscribe();
   }, []);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      console.error(err);
+      setLoginError('ログインに失敗しました。メールアドレスとパスワードを確認してください。');
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    setInventory({ products: [], materials: [], rawMaterials: [] });
+  };
 
   // Data Listeners
   useEffect(() => {
@@ -229,7 +260,7 @@ export default function App() {
         setLoading(false);
       }, (err) => {
         if (err.code === 'permission-denied') {
-          setErrorMessage("【重要】Firebaseのアクセス権限がありません。Firestoreのルールを『テストモード（allow read, write: if true;）』に変更してください。");
+          setErrorMessage("【重要】Firebaseのアクセス権限がありません。Firestoreのルールを『allow read, write: if request.auth != null;』に変更してください。");
         }
       });
     });
@@ -347,7 +378,6 @@ export default function App() {
   };
 
   const handleDrop = async (e, dropIdx, listType) => {
-    // ドラッグがキャンセルされたり、不正なドロップがあった場合の確実なリセット
     if (draggedIdx === null || dragType !== listType || draggedIdx === dropIdx || !isEnvConfigured) {
       setDraggedIdx(null); setDragType(null); setDraggableRowId(null);
       return;
@@ -358,7 +388,6 @@ export default function App() {
     for (let i = 0; i < list.length; i++) {
       if (list[i].order !== i) await updateItem(listType, list[i].id, { order: i });
     }
-    // 成功時も確実にリセット
     setDraggedIdx(null); setDragType(null); setDraggableRowId(null);
   };
 
@@ -415,9 +444,48 @@ export default function App() {
     );
   }
 
+  // ★ ログイン画面の表示 (ユーザーが存在せず、Canvas環境でもない場合)
+  if (!user && !loading && !isCanvasEnv) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full border border-slate-100">
+          <div className="flex justify-center mb-6">
+            <div className="bg-indigo-600 p-4 rounded-2xl shadow-lg ring-4 ring-indigo-50">
+              <Briefcase className="w-8 h-8 text-white" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-black text-center mb-8 text-slate-800">在庫管理システム</h2>
+          <form onSubmit={handleLogin} className="space-y-5">
+            {loginError && (
+              <div className="bg-red-50 text-red-600 text-sm font-bold p-4 rounded-xl border border-red-100 flex items-start">
+                <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+                <span>{loginError}</span>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-wider">メールアドレス</label>
+              <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} 
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-slate-800 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 transition-all" 
+                placeholder="admin@example.com" />
+            </div>
+            <div>
+              <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-wider">パスワード</label>
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} 
+                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-slate-800 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-50 transition-all" 
+                placeholder="••••••••" />
+            </div>
+            <button type="submit" className="w-full py-4 mt-2 rounded-2xl text-white font-black bg-indigo-600 hover:bg-indigo-700 shadow-xl shadow-indigo-200 active:scale-95 transition-all flex justify-center items-center">
+              ログインして開始
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   if (loading || errorMessage) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-white p-4">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4 font-sans">
         {errorMessage ? (
            <div className="bg-red-50 border-2 border-red-500 rounded-3xl p-8 max-w-2xl w-full text-center shadow-xl">
              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
@@ -426,7 +494,7 @@ export default function App() {
            </div>
         ) : (
           <div className="text-center">
-            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-indigo-600 mx-auto mb-4"></div>
+            <div className="animate-spin rounded-full h-10 w-10 border-t-4 border-indigo-200 border-t-indigo-600 mx-auto mb-4"></div>
             <p className="text-slate-400 font-black tracking-widest text-xs uppercase">{connectionStatus}</p>
           </div>
         )}
@@ -483,6 +551,12 @@ export default function App() {
               <Calendar className="w-5 h-5 text-slate-400" />
               <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="outline-none bg-transparent font-black text-indigo-600 cursor-pointer" />
             </div>
+            {/* ★ ログアウトボタン */}
+            {!isCanvasEnv && (
+              <button onClick={handleLogout} className="flex items-center space-x-1 bg-white text-slate-500 ml-2 px-3 py-2 rounded-xl border border-slate-300 hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-all text-sm font-bold shadow-sm active:scale-95">
+                <LogOut className="w-4 h-4" /><span>ログアウト</span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -639,8 +713,7 @@ export default function App() {
       <footer className="fixed bottom-6 right-6 pointer-events-none z-40">
         <div className="bg-slate-900/90 text-white px-4 py-2 rounded-2xl shadow-2xl flex items-center space-x-3 border border-slate-700/50 backdrop-blur-md">
           <div className={`w-2 h-2 rounded-full ${isCanvasEnv ? 'bg-amber-400' : 'bg-emerald-500'} animate-pulse`}></div>
-          <span className="text-[10px] font-black uppercase opacity-70">UID:</span>
-          <span className="text-[10px] font-mono font-bold truncate max-w-[120px]">{user?.uid}</span>
+          <span className="text-[10px] font-black uppercase opacity-70">{user?.email || 'Admin'}</span>
         </div>
       </footer>
     </div>
