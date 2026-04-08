@@ -4,7 +4,7 @@ import {
   Briefcase, Calendar, Shapes, Edit2, Download, X, 
   GripVertical, Cloud, Check, RefreshCw, AlertCircle,
   Upload, RotateCcw, AlertTriangle, Save, LogOut,
-  ArrowRight, Minus
+  ArrowRight, Minus, Truck, ShoppingCart
 } from 'lucide-react';
 
 // Firebase imports
@@ -165,6 +165,9 @@ export default function App() {
 
   // 出庫・入庫モーダル用状態
   const [adjustModal, setAdjustModal] = useState({ isOpen: false, item: null, type: '', action: '', amount: '' });
+  
+  // ★ 発注記録モーダル用状態
+  const [orderModal, setOrderModal] = useState({ isOpen: false, item: null, amount: '', date: '' });
 
   const [type, setType] = useState('product');
   const [name, setName] = useState('');
@@ -182,7 +185,7 @@ export default function App() {
   const [isDragOverDocument, setIsDragOverDocument] = useState(false);
   const [draggableRowId, setDraggableRowId] = useState(null);
 
-  // ★ 1日・15日の判定用状態（土日祝を考慮）
+  // 1日・15日の判定用状態（土日祝を考慮）
   const [orderAlertInfo, setOrderAlertInfo] = useState({ isAlertDay: false, message: '' });
 
   const showToast = (msg) => {
@@ -199,7 +202,7 @@ export default function App() {
     return () => window.removeEventListener("dragover", handleWindowDragOver);
   }, []);
 
-  // Auth
+  // Auth & Holiday Fetch
   useEffect(() => {
     if (!isEnvConfigured) { setLoading(false); return; }
     
@@ -222,7 +225,7 @@ export default function App() {
     };
     initAuth();
 
-    // ★ 日本の祝日を取得し、土日祝を避けた「実際の営業日」を計算してアラートを出す
+    // 日本の祝日を取得し、土日祝を避けた「実際の営業日」を計算してアラートを出す
     fetch('https://holidays-jp.github.io/api/v1/date.json')
       .then(res => res.json())
       .then(holidays => {
@@ -230,14 +233,12 @@ export default function App() {
         const yyyy = todayObj.getFullYear();
         const month = todayObj.getMonth();
         
-        // 休日判定関数（土・日・祝日ならtrue）
         const checkIsHoliday = (d) => {
           if (d.getDay() === 0 || d.getDay() === 6) return true;
           const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
           return holidays[dateStr] !== undefined;
         };
 
-        // 指定日が休日なら「翌営業日（休み明け）」を探す関数
         const getNextBusinessDay = (targetDate) => {
           let d = new Date(yyyy, month, targetDate);
           while (checkIsHoliday(d)) {
@@ -246,10 +247,8 @@ export default function App() {
           return d.getDate();
         };
 
-        // 今月の「実際の発注確認日」を計算
         const orderDay1 = getNextBusinessDay(1);
         const orderDay15 = getNextBusinessDay(15);
-        
         const todayDate = todayObj.getDate();
         
         if (todayDate === orderDay1) {
@@ -268,7 +267,6 @@ export default function App() {
       })
       .catch(err => {
         console.error("祝日カレンダーの取得エラー:", err);
-        // エラー時の予備ロジック（単なる1日と15日）
         const todayDate = new Date().getDate();
         if (todayDate === 1 || todayDate === 15) {
           setOrderAlertInfo({ isAlertDay: true, message: `今日は発注確認日です（${todayDate}日）。` });
@@ -318,7 +316,6 @@ export default function App() {
     if (!user || !isEnvConfigured) return;
     try {
       await updateDoc(getDocPath(t + 's', id), updates);
-      showToast("変更をクラウドに保存しました");
     } catch (err) { setErrorMessage(`更新エラー: ${err.message}`); }
   };
 
@@ -337,7 +334,8 @@ export default function App() {
       name, price: Number(price), prevQuantity: 0, quantity: Number(quantity),
       monthlyPace: type === 'product' ? Number(monthlyPace || 0) : 0,
       company: (type === 'product' ? '-' : company),
-      createdAt: Date.now(), order: Date.now() 
+      createdAt: Date.now(), order: Date.now(),
+      isOrdered: false, orderedQuantity: null, arrivalDate: null
     };
     try {
       await addDoc(getBasePath(type + 's'), newItem);
@@ -346,7 +344,7 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // 出入庫の実行
+  // ★ 出入庫の実行（システムが気を利かせる処理）
   const executeAdjustment = async (e) => {
     e.preventDefault();
     if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured) return;
@@ -358,13 +356,40 @@ export default function App() {
     else if (adjustModal.action === 'add') { newQuantity = newQuantity + amount; }
 
     try {
-      await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), {
+      const updates = {
         prevQuantity: adjustModal.item.quantity,
         quantity: newQuantity
-      });
+      };
+
+      // 商品が入庫されたとき、もし「発注済」状態であれば自動的に解除する
+      let autoResetMessage = '';
+      if (adjustModal.action === 'add' && adjustModal.item.isOrdered) {
+        updates.isOrdered = false;
+        updates.orderedQuantity = null;
+        updates.arrivalDate = null;
+        autoResetMessage = '（発注記録も自動で解除しました）';
+      }
+
+      await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), updates);
       setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' });
-      showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了しました`);
+      showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了しました${autoResetMessage}`);
     } catch (err) { setErrorMessage(`処理エラー: ${err.message}`); }
+  };
+
+  // 発注記録の保存
+  const executeOrderRecord = async (e) => {
+    e.preventDefault();
+    if (!user || !orderModal.item || !isEnvConfigured) return;
+    
+    try {
+      await updateDoc(getDocPath('products', orderModal.item.id), {
+        isOrdered: true,
+        orderedQuantity: Number(orderModal.amount),
+        arrivalDate: orderModal.date
+      });
+      setOrderModal({ isOpen: false, item: null, amount: '', date: '' });
+      showToast("発注記録を保存しました");
+    } catch (err) { setErrorMessage(`記録エラー: ${err.message}`); }
   };
 
   const restoreInitialData = async () => {
@@ -417,7 +442,7 @@ export default function App() {
             price: Number((row[3] || '0').replace(/[,¥"']/g, '')),
             prevQuantity: Number((row[4] || '0').replace(/[,¥"']/g, '')), 
             quantity: Number((row[5] || '0').replace(/[,¥"']/g, '')),
-            monthlyPace: 0 // CSV読込時は一旦0とする
+            monthlyPace: 0
           });
           importCount++;
         }
@@ -484,9 +509,11 @@ export default function App() {
     csvContent += `商品 合計,${escapeCSV(formatNum(totals.products))}\n`;
     csvContent += `資材 合計,${escapeCSV(formatNum(totals.materials))}\n├ 当社,${escapeCSV(formatNum(totals.materialsOur))}\n├ ウキシマメディカル,${escapeCSV(formatNum(totals.materialsUkishima))}\n└ 中日本カプセル,${escapeCSV(formatNum(totals.materialsNakanihon))}\n`;
     csvContent += `原材料 合計,${escapeCSV(formatNum(totals.rawMaterials))}\n├ 当社,${escapeCSV(formatNum(totals.rawMaterialsOur))}\n├ ウキシマメディカル,${escapeCSV(formatNum(totals.rawMaterialsUkishima))}\n└ 中日本カプセル,${escapeCSV(formatNum(totals.rawMaterialsNakanihon))}\n\n`;
-    csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額,月間平均\n";
+    csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額,月間平均,発注状況\n";
     const addRows = (list, label) => list.forEach(i => {
-      csvContent += `${escapeCSV(label)},${escapeCSV(i.name)},${escapeCSV(i.company || '-')},${escapeCSV(formatNum(i.price))},${escapeCSV(formatNum(i.prevQuantity))},${escapeCSV(formatNum(i.quantity))},${escapeCSV(formatNum(i.price * i.quantity))},${escapeCSV(i.monthlyPace || '-')}\n`;
+      let orderStatus = "-";
+      if (label === '商品' && i.isOrdered) orderStatus = `発注済(${i.orderedQuantity}個 / ${i.arrivalDate}予定)`;
+      csvContent += `${escapeCSV(label)},${escapeCSV(i.name)},${escapeCSV(i.company || '-')},${escapeCSV(formatNum(i.price))},${escapeCSV(formatNum(i.prevQuantity))},${escapeCSV(formatNum(i.quantity))},${escapeCSV(formatNum(i.price * i.quantity))},${escapeCSV(i.monthlyPace || '-')},${escapeCSV(orderStatus)}\n`;
     });
     addRows(inventory.products, "商品"); addRows(inventory.materials, "資材"); addRows(inventory.rawMaterials, "原材料");
     const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
@@ -595,7 +622,6 @@ export default function App() {
 
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* ★ 1日・15日の発注確認アラート */}
         {orderAlertInfo.isAlertDay && (
           <div className="bg-amber-100 border-l-4 border-amber-500 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-pulse">
             <div className="flex items-center">
@@ -678,11 +704,10 @@ export default function App() {
                       <th className="px-4 py-5 w-12 text-center">#</th>
                       <th className="px-4 py-5">品名</th>
                       {section.type !== 'product' && <th className="px-4 py-5 text-center">取扱会社</th>}
-                      {/* 商品リスト専用のヘッダー */}
                       {section.type === 'product' && <th className="px-4 py-5 text-center">月間平均</th>}
-                      {section.type === 'product' && <th className="px-4 py-5 text-center">ステータス</th>}
+                      {/* ★ ステータスヘッダー */}
+                      {section.type === 'product' && <th className="px-4 py-5 text-center">ステータス (クリックで記録)</th>}
                       <th className="px-4 py-5 text-center">現在庫 (直接修正)</th>
-                      {/* 出入庫ボタン */}
                       <th className="px-4 py-5 text-center">日々の操作</th>
                       <th className="px-6 py-5 text-right">単価</th>
                       <th className="px-6 py-5 text-right">合計</th>
@@ -692,7 +717,6 @@ export default function App() {
                   <tbody className="divide-y divide-slate-100">
                     {section.list.length === 0 ? (<tr><td colSpan="10" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
                       section.list.map((item, idx) => {
-                        // 発注ロジックの計算
                         const monthlyPace = item.monthlyPace || 0;
                         const orderPoint = monthlyPace * 6; // 発注点 (6ヶ月分)
                         const targetInventory = monthlyPace * 9; // 目標在庫 (9ヶ月分)
@@ -718,22 +742,51 @@ export default function App() {
                             
                             {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
                             
-                            {/* 商品リスト専用のデータ */}
                             {section.type === 'product' && (
                               <td className="px-4 py-4 text-center text-slate-500 font-bold">
                                 <EditableCell value={monthlyPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
                               </td>
                             )}
+
+                            {/* ★ 発注ステータス表示（クリックでモーダルを開く） */}
                             {section.type === 'product' && (
-                              <td className="px-4 py-4 text-center">
-                                {isUnderStock ? (
-                                  <div className="flex flex-col items-center">
-                                    <span className="text-[10px] font-black bg-red-100 text-red-600 px-2 py-1 rounded-full whitespace-nowrap">⚠️ 発注推奨</span>
-                                    <span className="text-[10px] font-bold text-slate-500 mt-1">推奨: {recommendQty}</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full whitespace-nowrap">良好</span>
-                                )}
+                              <td className="px-4 py-4 text-center align-middle">
+                                <div 
+                                  onClick={() => {
+                                    setOrderModal({
+                                      isOpen: true, 
+                                      item, 
+                                      amount: item.orderedQuantity || recommendQty || '', 
+                                      date: item.arrivalDate || ''
+                                    });
+                                  }}
+                                  className="inline-flex flex-col items-center justify-center cursor-pointer p-2 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors group/status relative min-w-[100px]"
+                                >
+                                  {item.isOrdered ? (
+                                    <>
+                                      <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
+                                        <Truck className="w-3 h-3 mr-1" /> 発注済
+                                      </span>
+                                      <span className="text-[10px] font-bold text-slate-600 mt-1">{item.arrivalDate} 予定</span>
+                                      <span className="text-[10px] font-bold text-slate-600">{item.orderedQuantity} 個</span>
+                                    </>
+                                  ) : isUnderStock ? (
+                                    <>
+                                      <span className="text-[10px] font-black bg-red-100 text-red-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
+                                        <AlertTriangle className="w-3 h-3 mr-1" /> 発注推奨
+                                      </span>
+                                      <span className="text-[10px] font-bold text-slate-500 mt-1">推奨: {recommendQty}</span>
+                                      <span className="text-[8px] font-black text-indigo-400 mt-1 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで発注記録</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center">
+                                        <Check className="w-3 h-3 mr-1" /> 良好
+                                      </span>
+                                      <span className="text-[8px] font-black text-indigo-400 mt-1 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで発注記録</span>
+                                    </>
+                                  )}
+                                </div>
                               </td>
                             )}
 
@@ -741,7 +794,6 @@ export default function App() {
                               <QuantityInput value={item.quantity} onUpdate={(q) => updateItem(section.type, item.id, { prevQuantity: item.quantity, quantity: q })} />
                             </td>
                             
-                            {/* ★ 日々の出入庫ボタン */}
                             <td className="px-4 py-4 text-center">
                               <div className="flex items-center justify-center space-x-1">
                                 <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '' })} className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
@@ -835,7 +887,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ★ 出庫・入庫モーダル */}
+      {/* 出庫・入庫モーダル */}
       {adjustModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className={`bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 ${adjustModal.action === 'add' ? 'border-emerald-400' : 'border-red-400'}`}>
@@ -855,6 +907,47 @@ export default function App() {
                 <div className="flex space-x-3">
                   <button type="button" onClick={() => setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' })} className="flex-1 py-3 rounded-xl text-slate-600 bg-slate-100 font-black">キャンセル</button>
                   <button type="submit" className={`flex-1 py-3 rounded-xl text-white font-black shadow-lg ${adjustModal.action === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'}`}>確定する</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ★ 発注記録モーダル */}
+      {orderModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 border-blue-400">
+            <div className="px-6 py-4 flex items-center justify-between bg-blue-50">
+              <h3 className="text-lg font-black flex items-center text-blue-700">
+                <ShoppingCart className="w-5 h-5 mr-2" />
+                {orderModal.item?.name} の発注記録
+              </h3>
+              <button onClick={() => setOrderModal({ isOpen: false, item: null, amount: '', date: '' })} className="text-slate-400 p-1"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6">
+              <form onSubmit={executeOrderRecord} className="space-y-6">
+                <div>
+                  <label className="block text-xs font-black text-slate-400 mb-2 uppercase">発注数量</label>
+                  <input type="number" required min="1" value={orderModal.amount} onChange={(e) => setOrderModal({ ...orderModal, amount: e.target.value })} className="w-full px-5 py-3 text-xl font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-slate-400 mb-2 uppercase">入庫予定日</label>
+                  <input type="date" required value={orderModal.date} onChange={(e) => setOrderModal({ ...orderModal, date: e.target.value })} className="w-full px-5 py-3 text-lg font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
+                </div>
+                <div className="flex flex-col space-y-3 pt-2">
+                  <button type="submit" className="w-full py-4 rounded-xl text-white font-black shadow-lg bg-blue-500 hover:bg-blue-600 transition-colors active:scale-95">発注済として記録する</button>
+                  {orderModal.item?.isOrdered && (
+                    <button type="button" onClick={async () => {
+                      await updateDoc(getDocPath('products', orderModal.item.id), {
+                        isOrdered: false, orderedQuantity: null, arrivalDate: null
+                      });
+                      setOrderModal({ isOpen: false, item: null, amount: '', date: '' });
+                      showToast("発注記録をリセットしました");
+                    }} className="w-full py-3 rounded-xl text-red-500 bg-red-50 font-black hover:bg-red-100 transition-colors border border-red-200 active:scale-95">
+                      発注状態を解除（取り消し）
+                    </button>
+                  )}
                 </div>
               </form>
             </div>
