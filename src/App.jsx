@@ -3,7 +3,8 @@ import {
   Package, Layers, Plus, Trash2, Wallet, 
   Briefcase, Calendar, Shapes, Edit2, Download, X, 
   GripVertical, Cloud, Check, RefreshCw, AlertCircle,
-  Upload, RotateCcw, AlertTriangle, Save, LogOut
+  Upload, RotateCcw, AlertTriangle, Save, LogOut,
+  ArrowRight, Minus
 } from 'lucide-react';
 
 // Firebase imports
@@ -33,7 +34,6 @@ const YOUR_FIREBASE_CONFIG = {
 };
 
 try {
-  // 1. AIのCanvas環境（プレビュー）用を「最優先」でチェック
   if (typeof window !== 'undefined' && window.__firebase_config) {
     const firebaseConfig = JSON.parse(window.__firebase_config);
     app = initializeApp(firebaseConfig);
@@ -42,9 +42,7 @@ try {
     appId = window.__app_id || appId;
     isEnvConfigured = true;
     isCanvasEnv = true;
-  } 
-  // 2. Vercelなどの本番環境用 (ユーザーのFirebaseプロジェクト)
-  else if (YOUR_FIREBASE_CONFIG && YOUR_FIREBASE_CONFIG.apiKey) {
+  } else if (YOUR_FIREBASE_CONFIG && YOUR_FIREBASE_CONFIG.apiKey) {
     app = initializeApp(YOUR_FIREBASE_CONFIG);
     auth = getAuth(app);
     db = getFirestore(app);
@@ -55,7 +53,6 @@ try {
   console.warn("Firebase configuration check:", e);
 }
 
-// データベースのパス
 const getBasePath = (t) => isCanvasEnv 
   ? collection(db, 'artifacts', appId, 'public', 'data', t) 
   : collection(db, 'inventory', 'master', t);
@@ -64,24 +61,20 @@ const getDocPath = (t, id) => isCanvasEnv
   ? doc(db, 'artifacts', appId, 'public', 'data', t, id)
   : doc(db, 'inventory', 'master', t, id);
 
-// --- 初期データ ---
+// --- 初期データ（発注管理対象の11品目を設定） ---
 const INITIAL_DATA = {
   products: [
-    { name: 'KP88携帯用', price: 267.3, prevQuantity: 0, quantity: 2992 },
-    { name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 243 },
-    { name: 'カニパック88', price: 1211.5, prevQuantity: 0, quantity: 660 },
-    { name: 'カニパック 90', price: 982.8, prevQuantity: 57, quantity: 572 },
-    { name: 'KPKP280粒', price: 1345.1, prevQuantity: 0, quantity: 240 },
-    { name: 'カニパックスA 60g', price: 1290, prevQuantity: 0, quantity: 445 },
-    { name: 'KPKP 21-S', price: 1437, prevQuantity: 0, quantity: 81 },
-    { name: 'KPKP 21-H', price: 993.1, prevQuantity: 0, quantity: 199 },
-    { name: 'カニパックアレ 100ml', price: 1040, prevQuantity: 0, quantity: 168 },
-    { name: 'カニパックLR', price: 3253, prevQuantity: 0, quantity: 397 },
-    { name: 'カニパックKR', price: 1670, prevQuantity: 0, quantity: 66 },
-    { name: 'キトナコス 27.10', price: 1832.6, prevQuantity: 156, quantity: 131 },
-    { name: '缶スタンド', price: 20, prevQuantity: 0, quantity: 100 },
-    { name: '斜め刃爪切り', price: 219, prevQuantity: 191, quantity: 180 },
-    { name: '除菌ウエットレジカゴバッグ', price: 110, prevQuantity: 74, quantity: 69 }
+    { name: 'KP88携帯用', price: 267.3, prevQuantity: 0, quantity: 1000, monthlyPace: 86 },
+    { name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 400, monthlyPace: 55 },
+    { name: 'カニパック８８', price: 1211.5, prevQuantity: 0, quantity: 2000, monthlyPace: 273 },
+    { name: 'カニパック９０', price: 982.8, prevQuantity: 0, quantity: 600, monthlyPace: 76 },
+    { name: 'KPKP280粒', price: 1345.1, prevQuantity: 0, quantity: 200, monthlyPace: 25 },
+    { name: 'KPKP 21-S', price: 1437, prevQuantity: 0, quantity: 20, monthlyPace: 3 },
+    { name: 'KPKP 21-H', price: 993.1, prevQuantity: 0, quantity: 150, monthlyPace: 17 },
+    { name: 'カニパックス-A 60g', price: 1290, prevQuantity: 0, quantity: 100, monthlyPace: 20 },
+    { name: 'カニパックアレ', price: 1040, prevQuantity: 0, quantity: 50, monthlyPace: 8 },
+    { name: 'KPLR210粒', price: 3253, prevQuantity: 0, quantity: 300, monthlyPace: 46 },
+    { name: 'キトナコス', price: 1832.6, prevQuantity: 0, quantity: 100, monthlyPace: 15 }
   ],
   materials: [
     { name: 'カニパック(240)6本箱36本箱シール', company: 'ウキシマメディカル', price: 2, prevQuantity: 0, quantity: 4459 },
@@ -119,7 +112,7 @@ const QuantityInput = memo(({ value, onUpdate }) => {
       type="number" inputMode="decimal" value={val}
       onChange={(e) => setVal(e.target.value)} onBlur={handleBlur}
       onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-      className="w-24 px-2 py-1 text-right text-slate-800 font-bold border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm transition-all"
+      className="w-20 px-2 py-1 text-right text-slate-800 font-bold border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm transition-all"
     />
   );
 });
@@ -161,7 +154,6 @@ export default function App() {
   const [connectionStatus, setConnectionStatus] = useState('Connecting to Database...');
   const [toastMessage, setToastMessage] = useState(''); 
 
-  // ログイン用の状態
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
@@ -171,10 +163,14 @@ export default function App() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
 
+  // 出庫・入庫モーダル用状態
+  const [adjustModal, setAdjustModal] = useState({ isOpen: false, item: null, type: '', action: '', amount: '' });
+
   const [type, setType] = useState('product');
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [quantity, setQuantity] = useState('');
+  const [monthlyPace, setMonthlyPace] = useState('');
   const [company, setCompany] = useState('当社');
   const [targetMonth, setTargetMonth] = useState(() => {
     const today = new Date();
@@ -185,6 +181,9 @@ export default function App() {
   const [dragType, setDragType] = useState(null);
   const [isDragOverDocument, setIsDragOverDocument] = useState(false);
   const [draggableRowId, setDraggableRowId] = useState(null);
+
+  // ★ 1日・15日の判定用状態（土日祝を考慮）
+  const [orderAlertInfo, setOrderAlertInfo] = useState({ isAlertDay: false, message: '' });
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -206,19 +205,15 @@ export default function App() {
     
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) {
-        setLoading(false); // 未ログイン時はローディングを解除してログイン画面を表示
-      }
+      if (!currentUser) { setLoading(false); }
     });
 
     const initAuth = async () => {
       try {
         setConnectionStatus("認証プロセスを開始...");
         if (isCanvasEnv && window.__initial_auth_token) {
-          // AIのプレビュー環境では自動ログイン
           await signInWithCustomToken(auth, window.__initial_auth_token);
         }
-        // 本番環境（isCanvasEnvがfalse）では自動ログインせず、ユーザーの入力を待つ
       } catch (err) { 
         console.error("Auth error:", err); 
         setErrorMessage(`認証エラー: ${err.message || err.code}`);
@@ -227,6 +222,59 @@ export default function App() {
     };
     initAuth();
 
+    // ★ 日本の祝日を取得し、土日祝を避けた「実際の営業日」を計算してアラートを出す
+    fetch('https://holidays-jp.github.io/api/v1/date.json')
+      .then(res => res.json())
+      .then(holidays => {
+        const todayObj = new Date();
+        const yyyy = todayObj.getFullYear();
+        const month = todayObj.getMonth();
+        
+        // 休日判定関数（土・日・祝日ならtrue）
+        const checkIsHoliday = (d) => {
+          if (d.getDay() === 0 || d.getDay() === 6) return true;
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          return holidays[dateStr] !== undefined;
+        };
+
+        // 指定日が休日なら「翌営業日（休み明け）」を探す関数
+        const getNextBusinessDay = (targetDate) => {
+          let d = new Date(yyyy, month, targetDate);
+          while (checkIsHoliday(d)) {
+            d.setDate(d.getDate() + 1);
+          }
+          return d.getDate();
+        };
+
+        // 今月の「実際の発注確認日」を計算
+        const orderDay1 = getNextBusinessDay(1);
+        const orderDay15 = getNextBusinessDay(15);
+        
+        const todayDate = todayObj.getDate();
+        
+        if (todayDate === orderDay1) {
+          setOrderAlertInfo({
+            isAlertDay: true,
+            message: `今日は月初（1日）の発注確認日です。${orderDay1 !== 1 ? `\n※1日が休日のため、休み明けの本日（${orderDay1}日）に繰り越されました。` : ''}`
+          });
+        } else if (todayDate === orderDay15) {
+          setOrderAlertInfo({
+            isAlertDay: true,
+            message: `今日は中旬（15日）の発注確認日です。${orderDay15 !== 15 ? `\n※15日が休日のため、休み明けの本日（${orderDay15}日）に繰り越されました。` : ''}`
+          });
+        } else {
+          setOrderAlertInfo({ isAlertDay: false, message: '' });
+        }
+      })
+      .catch(err => {
+        console.error("祝日カレンダーの取得エラー:", err);
+        // エラー時の予備ロジック（単なる1日と15日）
+        const todayDate = new Date().getDate();
+        if (todayDate === 1 || todayDate === 15) {
+          setOrderAlertInfo({ isAlertDay: true, message: `今日は発注確認日です（${todayDate}日）。` });
+        }
+      });
+
     return () => unsubscribe();
   }, []);
 
@@ -234,9 +282,8 @@ export default function App() {
     e.preventDefault();
     setLoginError('');
     setLoading(true);
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-    } catch (err) {
+    try { await signInWithEmailAndPassword(auth, email, password); } 
+    catch (err) {
       console.error(err);
       setLoginError('ログインに失敗しました。メールアドレスとパスワードを確認してください。');
       setLoading(false);
@@ -272,9 +319,7 @@ export default function App() {
     try {
       await updateDoc(getDocPath(t + 's', id), updates);
       showToast("変更をクラウドに保存しました");
-    } catch (err) {
-      setErrorMessage(`更新エラー: ${err.message}`);
-    }
+    } catch (err) { setErrorMessage(`更新エラー: ${err.message}`); }
   };
 
   const removeItem = async (t, id) => {
@@ -282,9 +327,7 @@ export default function App() {
     try {
       await deleteDoc(getDocPath(t + 's', id));
       showToast("データを削除しました");
-    } catch (err) {
-      setErrorMessage(`削除エラー: ${err.message}`);
-    }
+    } catch (err) { setErrorMessage(`削除エラー: ${err.message}`); }
   };
 
   const handleAdd = async (e) => {
@@ -292,16 +335,36 @@ export default function App() {
     if (!user || !name || !price || !quantity || !isEnvConfigured) return;
     const newItem = {
       name, price: Number(price), prevQuantity: 0, quantity: Number(quantity),
+      monthlyPace: type === 'product' ? Number(monthlyPace || 0) : 0,
       company: (type === 'product' ? '-' : company),
       createdAt: Date.now(), order: Date.now() 
     };
     try {
       await addDoc(getBasePath(type + 's'), newItem);
-      setName(''); setPrice(''); setQuantity(''); setIsModalOpen(false);
+      setName(''); setPrice(''); setQuantity(''); setMonthlyPace(''); setIsModalOpen(false);
       showToast("新規データを追加しました");
-    } catch (err) {
-      setErrorMessage(`追加エラー: ${err.message}`);
-    }
+    } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
+  };
+
+  // 出入庫の実行
+  const executeAdjustment = async (e) => {
+    e.preventDefault();
+    if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured) return;
+    
+    const amount = Number(adjustModal.amount);
+    let newQuantity = adjustModal.item.quantity;
+    
+    if (adjustModal.action === 'sub') { newQuantity = Math.max(0, newQuantity - amount); } 
+    else if (adjustModal.action === 'add') { newQuantity = newQuantity + amount; }
+
+    try {
+      await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), {
+        prevQuantity: adjustModal.item.quantity,
+        quantity: newQuantity
+      });
+      setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' });
+      showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了しました`);
+    } catch (err) { setErrorMessage(`処理エラー: ${err.message}`); }
   };
 
   const restoreInitialData = async () => {
@@ -319,7 +382,7 @@ export default function App() {
       }
       await batch.commit();
       setIsSyncModalOpen(false);
-      showToast("初期データの復元とクラウドへの保存が完了しました");
+      showToast("初期データの復元が完了しました");
     } catch (err) { setErrorMessage(`復元エラー: ${err.message}`); }
     setInitializing(false);
   };
@@ -354,6 +417,7 @@ export default function App() {
             price: Number((row[3] || '0').replace(/[,¥"']/g, '')),
             prevQuantity: Number((row[4] || '0').replace(/[,¥"']/g, '')), 
             quantity: Number((row[5] || '0').replace(/[,¥"']/g, '')),
+            monthlyPace: 0 // CSV読込時は一旦0とする
           });
           importCount++;
         }
@@ -372,7 +436,7 @@ export default function App() {
       
       await batch.commit();
       setIsImportModalOpen(false); setImportText('');
-      showToast("CSVデータの読み込みとクラウドへの保存が完了しました");
+      showToast("CSVデータの読み込みが完了しました");
     } catch (err) { setErrorMessage(`読み込みエラー: ${err.message}`); }
     setInitializing(false);
   };
@@ -420,9 +484,9 @@ export default function App() {
     csvContent += `商品 合計,${escapeCSV(formatNum(totals.products))}\n`;
     csvContent += `資材 合計,${escapeCSV(formatNum(totals.materials))}\n├ 当社,${escapeCSV(formatNum(totals.materialsOur))}\n├ ウキシマメディカル,${escapeCSV(formatNum(totals.materialsUkishima))}\n└ 中日本カプセル,${escapeCSV(formatNum(totals.materialsNakanihon))}\n`;
     csvContent += `原材料 合計,${escapeCSV(formatNum(totals.rawMaterials))}\n├ 当社,${escapeCSV(formatNum(totals.rawMaterialsOur))}\n├ ウキシマメディカル,${escapeCSV(formatNum(totals.rawMaterialsUkishima))}\n└ 中日本カプセル,${escapeCSV(formatNum(totals.rawMaterialsNakanihon))}\n\n`;
-    csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額\n";
+    csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額,月間平均\n";
     const addRows = (list, label) => list.forEach(i => {
-      csvContent += `${escapeCSV(label)},${escapeCSV(i.name)},${escapeCSV(i.company || '-')},${escapeCSV(formatNum(i.price))},${escapeCSV(formatNum(i.prevQuantity))},${escapeCSV(formatNum(i.quantity))},${escapeCSV(formatNum(i.price * i.quantity))}\n`;
+      csvContent += `${escapeCSV(label)},${escapeCSV(i.name)},${escapeCSV(i.company || '-')},${escapeCSV(formatNum(i.price))},${escapeCSV(formatNum(i.prevQuantity))},${escapeCSV(formatNum(i.quantity))},${escapeCSV(formatNum(i.price * i.quantity))},${escapeCSV(i.monthlyPace || '-')}\n`;
     });
     addRows(inventory.products, "商品"); addRows(inventory.materials, "資材"); addRows(inventory.rawMaterials, "原材料");
     const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
@@ -444,7 +508,7 @@ export default function App() {
     );
   }
 
-  // ★ ログイン画面の表示 (ユーザーが存在せず、Canvas環境でもない場合)
+  // ログイン画面
   if (!user && !loading && !isCanvasEnv) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
@@ -505,7 +569,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 font-sans relative select-none">
       
-      {/* 保存成功トースト表示 */}
       <div className={`fixed bottom-20 right-6 z-50 transition-all duration-500 transform ${toastMessage ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
         <div className="bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 font-bold border border-emerald-500/50 backdrop-blur-md">
           <Save className="w-5 h-5" />
@@ -525,12 +588,26 @@ export default function App() {
               reader.readAsText(file); 
             }
           }}>
-          <Download className="w-24 h-24 text-indigo-200 mb-8 animate-pulse" />
+          <Upload className="w-24 h-24 text-indigo-200 mb-8 animate-pulse" />
           <h2 className="text-5xl font-black text-white mb-6">CSVファイルをドロップ</h2>
         </div>
       )}
 
       <div className="max-w-6xl mx-auto space-y-6">
+        
+        {/* ★ 1日・15日の発注確認アラート */}
+        {orderAlertInfo.isAlertDay && (
+          <div className="bg-amber-100 border-l-4 border-amber-500 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-pulse">
+            <div className="flex items-center">
+              <AlertTriangle className="w-6 h-6 text-amber-500 mr-3" />
+              <div>
+                <h3 className="font-black text-amber-800 whitespace-pre-line">{orderAlertInfo.message}</h3>
+                <p className="text-sm font-bold text-amber-700 mt-1">「⚠️ 発注推奨」が出ている商品がないか確認し、メーカーへ発注を行ってください。</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <header className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center space-x-4">
             <div className="bg-indigo-600 p-2.5 rounded-xl shadow-lg ring-4 ring-indigo-50"><Briefcase className="w-7 h-7 text-white" /></div>
@@ -543,15 +620,14 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Upload className="w-4 h-4" /><span>CSV出力</span></button>
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Download className="w-4 h-4" /><span>CSV読込</span></button>
+            <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Download className="w-4 h-4" /><span>CSV出力</span></button>
+            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Upload className="w-4 h-4" /><span>CSV読込</span></button>
             <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 transition-all text-sm font-bold shadow-sm active:scale-95"><RotateCcw className="w-4 h-4" /><span>初期化</span></button>
             <button onClick={() => setIsModalOpen(true)} className="flex items-center space-x-1 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all text-sm font-bold shadow-md active:scale-95"><Plus className="w-4 h-4" /><span>新規追加</span></button>
             <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-300 shadow-sm">
               <Calendar className="w-5 h-5 text-slate-400" />
               <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="outline-none bg-transparent font-black text-indigo-600 cursor-pointer" />
             </div>
-            {/* ★ ログアウトボタン */}
             {!isCanvasEnv && (
               <button onClick={handleLogout} className="flex items-center space-x-1 bg-white text-slate-500 ml-2 px-3 py-2 rounded-xl border border-slate-300 hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-all text-sm font-bold shadow-sm active:scale-95">
                 <LogOut className="w-4 h-4" /><span>ログアウト</span>
@@ -602,43 +678,89 @@ export default function App() {
                       <th className="px-4 py-5 w-12 text-center">#</th>
                       <th className="px-4 py-5">品名</th>
                       {section.type !== 'product' && <th className="px-4 py-5 text-center">取扱会社</th>}
-                      <th className="px-6 py-5 text-right">数量 (前月 ➔ 今月)</th>
+                      {/* 商品リスト専用のヘッダー */}
+                      {section.type === 'product' && <th className="px-4 py-5 text-center">月間平均</th>}
+                      {section.type === 'product' && <th className="px-4 py-5 text-center">ステータス</th>}
+                      <th className="px-4 py-5 text-center">現在庫 (直接修正)</th>
+                      {/* 出入庫ボタン */}
+                      <th className="px-4 py-5 text-center">日々の操作</th>
                       <th className="px-6 py-5 text-right">単価</th>
                       <th className="px-6 py-5 text-right">合計</th>
-                      <th className="px-6 py-5 text-center w-24">操作</th>
+                      <th className="px-6 py-5 text-center w-16">削</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {section.list.length === 0 ? (<tr><td colSpan="7" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
-                      section.list.map((item, idx) => (
-                        <tr key={item.id} 
-                          draggable={draggableRowId === item.id} 
-                          onDragStart={() => { setDraggedIdx(idx); setDragType(section.type); }} 
-                          onDragEnd={() => { setDraggedIdx(null); setDragType(null); setDraggableRowId(null); }}
-                          onDragOver={(e) => e.preventDefault()} 
-                          onDrop={(e) => handleDrop(e, idx, section.type)}
-                          className={`hover:bg-slate-50/80 transition-colors group ${draggedIdx === idx && dragType === section.type ? 'opacity-30' : ''}`}>
-                          <td 
-                            className="px-4 py-4 text-slate-300 cursor-grab active:cursor-grabbing"
-                            onMouseEnter={() => setDraggableRowId(item.id)}
-                            onMouseLeave={() => setDraggableRowId(null)}
-                          >
-                            <GripVertical className="w-5 h-5 mx-auto" />
-                          </td>
-                          <td className="px-4 py-4 font-black min-w-[240px]"><EditableCell value={item.name} onUpdate={(n) => updateItem(section.type, item.id, { name: n })} /></td>
-                          {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
-                          <td className="px-6 py-4 text-right flex items-center justify-end">
-                            <span className="text-slate-400 text-xs mr-3">{item.prevQuantity.toLocaleString()}</span>
-                            <span className="mx-2 text-slate-200">➔</span>
-                            <QuantityInput value={item.quantity} onUpdate={(q) => updateItem(section.type, item.id, { prevQuantity: item.quantity, quantity: q })} />
-                          </td>
-                          <td className="px-6 py-4 text-right font-bold text-slate-500"><EditableCell value={item.price} type="number" format={formatCurrency} onUpdate={(p) => updateItem(section.type, item.id, { price: p })} /></td>
-                          <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(item.price * item.quantity)}</td>
-                          <td className="px-6 py-4 text-center">
-                            <button onClick={() => removeItem(section.type, item.id)} className="text-slate-300 hover:text-red-500 transition-all p-2 rounded-xl hover:bg-red-50"><Trash2 className="w-5 h-5" /></button>
-                          </td>
-                        </tr>
-                      ))
+                    {section.list.length === 0 ? (<tr><td colSpan="10" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
+                      section.list.map((item, idx) => {
+                        // 発注ロジックの計算
+                        const monthlyPace = item.monthlyPace || 0;
+                        const orderPoint = monthlyPace * 6; // 発注点 (6ヶ月分)
+                        const targetInventory = monthlyPace * 9; // 目標在庫 (9ヶ月分)
+                        const isUnderStock = monthlyPace > 0 && item.quantity < orderPoint;
+                        const recommendQty = Math.max(0, targetInventory - item.quantity);
+
+                        return (
+                          <tr key={item.id} 
+                            draggable={draggableRowId === item.id} 
+                            onDragStart={() => { setDraggedIdx(idx); setDragType(section.type); }} 
+                            onDragEnd={() => { setDraggedIdx(null); setDragType(null); setDraggableRowId(null); }}
+                            onDragOver={(e) => e.preventDefault()} 
+                            onDrop={(e) => handleDrop(e, idx, section.type)}
+                            className={`hover:bg-slate-50/80 transition-colors group ${draggedIdx === idx && dragType === section.type ? 'opacity-30' : ''}`}>
+                            <td 
+                              className="px-4 py-4 text-slate-300 cursor-grab active:cursor-grabbing"
+                              onMouseEnter={() => setDraggableRowId(item.id)}
+                              onMouseLeave={() => setDraggableRowId(null)}
+                            >
+                              <GripVertical className="w-5 h-5 mx-auto" />
+                            </td>
+                            <td className="px-4 py-4 font-black min-w-[180px]"><EditableCell value={item.name} onUpdate={(n) => updateItem(section.type, item.id, { name: n })} /></td>
+                            
+                            {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
+                            
+                            {/* 商品リスト専用のデータ */}
+                            {section.type === 'product' && (
+                              <td className="px-4 py-4 text-center text-slate-500 font-bold">
+                                <EditableCell value={monthlyPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
+                              </td>
+                            )}
+                            {section.type === 'product' && (
+                              <td className="px-4 py-4 text-center">
+                                {isUnderStock ? (
+                                  <div className="flex flex-col items-center">
+                                    <span className="text-[10px] font-black bg-red-100 text-red-600 px-2 py-1 rounded-full whitespace-nowrap">⚠️ 発注推奨</span>
+                                    <span className="text-[10px] font-bold text-slate-500 mt-1">推奨: {recommendQty}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full whitespace-nowrap">良好</span>
+                                )}
+                              </td>
+                            )}
+
+                            <td className="px-4 py-4 text-center">
+                              <QuantityInput value={item.quantity} onUpdate={(q) => updateItem(section.type, item.id, { prevQuantity: item.quantity, quantity: q })} />
+                            </td>
+                            
+                            {/* ★ 日々の出入庫ボタン */}
+                            <td className="px-4 py-4 text-center">
+                              <div className="flex items-center justify-center space-x-1">
+                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '' })} className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
+                                  <Minus className="w-3 h-3 mr-1" />出庫
+                                </button>
+                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'add', amount: '' })} className="px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-xs font-black rounded-lg transition-colors flex items-center border border-emerald-100">
+                                  <Plus className="w-3 h-3 mr-1" />入庫
+                                </button>
+                              </div>
+                            </td>
+
+                            <td className="px-6 py-4 text-right font-bold text-slate-500"><EditableCell value={item.price} type="number" format={formatCurrency} onUpdate={(p) => updateItem(section.type, item.id, { price: p })} /></td>
+                            <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(item.price * item.quantity)}</td>
+                            <td className="px-6 py-4 text-center">
+                              <button onClick={() => removeItem(section.type, item.id)} className="text-slate-300 hover:text-red-500 transition-all p-2 rounded-xl hover:bg-red-50"><Trash2 className="w-5 h-5" /></button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -653,7 +775,7 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-8 py-6 border-b border-emerald-100 flex items-center justify-between bg-emerald-50/50">
-              <div className="flex items-center"><Download className="w-8 h-8 mr-3 text-emerald-500" /><h3 className="text-xl font-black">CSV読み込み / 貼り付け</h3></div>
+              <div className="flex items-center"><Upload className="w-8 h-8 mr-3 text-emerald-500" /><h3 className="text-xl font-black">CSV読み込み / 貼り付け</h3></div>
               <button onClick={() => setIsImportModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-8 overflow-y-auto">
@@ -669,7 +791,7 @@ export default function App() {
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border-2 border-amber-500">
             <div className="px-8 py-6 border-b bg-amber-50/50 flex items-center"><AlertTriangle className="w-8 h-8 mr-3 text-amber-500" /><h3 className="text-xl font-black">初期化</h3></div>
             <div className="p-8">
-              <p className="text-slate-600 font-bold mb-6">全データを消去し、初期状態に戻します。よろしいですか？</p>
+              <p className="text-slate-600 font-bold mb-6">全データを消去し、初期化します。現在登録されているデータはすべて失われますがよろしいですか？</p>
               <div className="flex space-x-4">
                 <button onClick={() => setIsSyncModalOpen(false)} className="flex-1 py-4 rounded-2xl text-slate-600 bg-slate-100 font-black">キャンセル</button>
                 <button onClick={restoreInitialData} className="flex-1 py-4 rounded-2xl text-white bg-amber-500 font-black shadow-xl" disabled={initializing}>実行する</button>
@@ -696,14 +818,44 @@ export default function App() {
                   ))}
                 </div>
                 <div><label className="block text-xs font-black text-slate-400 mb-2">品名</label><input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
+                {type === 'product' && (
+                  <div><label className="block text-xs font-black text-slate-400 mb-2">月間平均出荷数 (初期値)</label><input type="number" required value={monthlyPace} onChange={(e) => setMonthlyPace(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
+                )}
                 {type !== 'product' && (
                   <div><label className="block text-xs font-black text-slate-400 mb-2">取扱会社</label><select value={company} onChange={(e) => setCompany(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold"><option value="当社">当社</option><option value="ウキシマメディカル">ウキシマメディカル</option><option value="中日本カプセル">中日本カプセル</option></select></div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
                   <div><label className="block text-xs font-black text-slate-400 mb-2">単価</label><input type="number" required step="any" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
-                  <div><label className="block text-xs font-black text-slate-400 mb-2">数量</label><input type="number" required value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
+                  <div><label className="block text-xs font-black text-slate-400 mb-2">初期数量</label><input type="number" required value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
                 </div>
                 <button type="submit" className="w-full py-4 px-6 rounded-2xl text-white font-black bg-indigo-600 hover:bg-indigo-700 shadow-xl transition-all">追加する</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ★ 出庫・入庫モーダル */}
+      {adjustModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className={`bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 ${adjustModal.action === 'add' ? 'border-emerald-400' : 'border-red-400'}`}>
+            <div className={`px-6 py-4 flex items-center justify-between ${adjustModal.action === 'add' ? 'bg-emerald-50' : 'bg-red-50'}`}>
+              <h3 className={`text-lg font-black flex items-center ${adjustModal.action === 'add' ? 'text-emerald-700' : 'text-red-700'}`}>
+                {adjustModal.action === 'add' ? <Plus className="w-5 h-5 mr-2" /> : <Minus className="w-5 h-5 mr-2" />}
+                {adjustModal.item?.name} の{adjustModal.action === 'add' ? '入庫' : '出庫'}
+              </h3>
+              <button onClick={() => setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' })} className="text-slate-400 p-1"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6">
+              <form onSubmit={executeAdjustment} className="space-y-6">
+                <div>
+                  <label className="block text-xs font-black text-slate-400 mb-2 text-center uppercase">数量を入力してください</label>
+                  <input type="number" required min="1" autoFocus value={adjustModal.amount} onChange={(e) => setAdjustModal({ ...adjustModal, amount: e.target.value })} className={`w-full px-5 py-4 text-center text-3xl font-black border-2 rounded-2xl outline-none transition-all ${adjustModal.action === 'add' ? 'border-emerald-200 focus:border-emerald-500 text-emerald-700' : 'border-red-200 focus:border-red-500 text-red-700'}`} />
+                </div>
+                <div className="flex space-x-3">
+                  <button type="button" onClick={() => setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' })} className="flex-1 py-3 rounded-xl text-slate-600 bg-slate-100 font-black">キャンセル</button>
+                  <button type="submit" className={`flex-1 py-3 rounded-xl text-white font-black shadow-lg ${adjustModal.action === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'}`}>確定する</button>
+                </div>
               </form>
             </div>
           </div>
