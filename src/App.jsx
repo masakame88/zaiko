@@ -525,7 +525,7 @@ export default function App() {
               reader.readAsText(file); 
             }
           }}>
-          <Upload className="w-24 h-24 text-indigo-200 mb-8 animate-pulse" />
+          <Download className="w-24 h-24 text-indigo-200 mb-8 animate-pulse" />
           <h2 className="text-5xl font-black text-white mb-6">CSVファイルをドロップ</h2>
         </div>
       )}
@@ -543,8 +543,8 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Download className="w-4 h-4" /><span>CSV出力</span></button>
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Upload className="w-4 h-4" /><span>CSV読込</span></button>
+            <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Upload className="w-4 h-4" /><span>CSV出力</span></button>
+            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Download className="w-4 h-4" /><span>CSV読込</span></button>
             <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 transition-all text-sm font-bold shadow-sm active:scale-95"><RotateCcw className="w-4 h-4" /><span>初期化</span></button>
             <button onClick={() => setIsModalOpen(true)} className="flex items-center space-x-1 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all text-sm font-bold shadow-md active:scale-95"><Plus className="w-4 h-4" /><span>新規追加</span></button>
             <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-300 shadow-sm">
@@ -626,7 +626,7 @@ export default function App() {
                             <GripVertical className="w-5 h-5 mx-auto" />
                           </td>
                           <td className="px-4 py-4 font-black min-w-[240px]"><EditableCell value={item.name} onUpdate={(n) => updateItem(section.type, item.id, { name: n })} /></td>
-                          {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
+                          {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
                           <td className="px-6 py-4 text-right flex items-center justify-end">
                             <span className="text-slate-400 text-xs mr-3">{item.prevQuantity.toLocaleString()}</span>
                             <span className="mx-2 text-slate-200">➔</span>
@@ -653,7 +653,7 @@ export default function App() {
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-8 py-6 border-b border-emerald-100 flex items-center justify-between bg-emerald-50/50">
-              <div className="flex items-center"><Upload className="w-8 h-8 mr-3 text-emerald-500" /><h3 className="text-xl font-black">CSV読み込み / 貼り付け</h3></div>
+              <div className="flex items-center"><Download className="w-8 h-8 mr-3 text-emerald-500" /><h3 className="text-xl font-black">CSV読み込み / 貼り付け</h3></div>
               <button onClick={() => setIsImportModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-6 h-6" /></button>
             </div>
             <div className="p-8 overflow-y-auto">
