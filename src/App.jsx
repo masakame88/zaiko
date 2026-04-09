@@ -1037,61 +1037,35 @@ export default function App() {
                   <Plus className="w-4 h-4 mr-1" /> 新しい発注を記録する
                 </h4>
 
-                {/* ★ 先回りした在庫枯渇予測日（デッドライン）の提示 */}
+                {/* ★ 先回りした在庫枯渇予測日（デッドライン：現在庫のみで計算） */}
                 {(() => {
                   if (orderModal.item && orderModal.item.monthlyPace > 0) {
-                    const curOrders = orderModal.item.orders || (orderModal.item.isOrdered ? [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }] : []);
-                    const sortedOrders = [...curOrders].sort((a, b) => new Date(a.date) - new Date(b.date));
-                    
-                    let currentQty = orderModal.item.quantity;
-                    let lastDate = new Date();
-                    lastDate.setHours(0,0,0,0);
+                    const currentQty = orderModal.item.quantity;
                     const pacePerDay = orderModal.item.monthlyPace / 30;
                     
-                    let isStockout = false;
-                    let stockoutDate = null;
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    
+                    const daysUntilEmpty = currentQty / pacePerDay;
+                    const stockoutDate = new Date(today.getTime() + daysUntilEmpty * 24*60*60*1000);
 
-                    for (let o of sortedOrders) {
-                      const arrivalDate = new Date(o.date);
-                      const diffDays = Math.max(0, (arrivalDate.getTime() - lastDate.getTime()) / (1000*60*60*24));
-                      const consumption = diffDays * pacePerDay;
-
-                      if (currentQty < consumption) {
-                        const daysUntilEmpty = currentQty / pacePerDay;
-                        stockoutDate = new Date(lastDate.getTime() + daysUntilEmpty * 24*60*60*1000);
-                        isStockout = true;
-                        break;
-                      } else {
-                        currentQty -= consumption;
-                        currentQty += Number(o.amount);
-                        lastDate = arrivalDate;
-                      }
-                    }
-
-                    if (!isStockout) {
-                      const daysUntilEmpty = currentQty / pacePerDay;
-                      stockoutDate = new Date(lastDate.getTime() + daysUntilEmpty * 24*60*60*1000);
-                    }
-
-                    if (stockoutDate) {
-                      const diffTotalDays = Math.max(0, Math.ceil((stockoutDate.getTime() - new Date().setHours(0,0,0,0)) / (1000*60*60*24)));
-                      const y = stockoutDate.getFullYear();
-                      const m = stockoutDate.getMonth() + 1;
-                      const d = stockoutDate.getDate();
-                      
-                      const isDanger = diffTotalDays <= 30; // 30日以内に尽きる場合は赤色で警告
-                      
-                      return (
-                        <div className={`p-3 rounded-xl border ${isDanger ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
-                          <h4 className={`text-[10px] font-black uppercase flex items-center mb-1 ${isDanger ? 'text-red-500' : 'text-slate-500'}`}>
-                            <Calendar className="w-3 h-3 mr-1" /> 在庫が完全に枯渇する予測日 (デッドライン)
-                          </h4>
-                          <p className={`text-sm font-bold ${isDanger ? 'text-red-700' : 'text-slate-700'}`}>
-                            {y}年{m}月{d}日 <span className="text-xs opacity-70 font-black">（約 {diffTotalDays} 日後）</span>
-                          </p>
-                        </div>
-                      );
-                    }
+                    const diffTotalDays = Math.max(0, Math.floor(daysUntilEmpty));
+                    const y = stockoutDate.getFullYear();
+                    const m = stockoutDate.getMonth() + 1;
+                    const d = stockoutDate.getDate();
+                    
+                    const isDanger = diffTotalDays <= 30; // 30日以内に尽きる場合は赤色で警告
+                    
+                    return (
+                      <div className={`p-3 rounded-xl border ${isDanger ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                        <h4 className={`text-[10px] font-black uppercase flex items-center mb-1 ${isDanger ? 'text-red-500' : 'text-slate-500'}`}>
+                          <Calendar className="w-3 h-3 mr-1" /> 追加発注がない場合の枯渇予測日 (デッドライン)
+                        </h4>
+                        <p className={`text-sm font-bold ${isDanger ? 'text-red-700' : 'text-slate-700'}`}>
+                          {y}年{m}月{d}日 <span className="text-xs opacity-70 font-black">（約 {diffTotalDays} 日後）</span>
+                        </p>
+                      </div>
+                    );
                   }
                   return null;
                 })()}
