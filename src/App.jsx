@@ -61,20 +61,20 @@ const getDocPath = (t, id) => isCanvasEnv
   ? doc(db, 'artifacts', appId, 'public', 'data', t, id)
   : doc(db, 'inventory', 'master', t, id);
 
-// --- 初期データ（発注管理対象の11品目を設定） ---
+// --- 初期データ ---
 const INITIAL_DATA = {
   products: [
-    { name: 'KP88携帯用', price: 267.3, prevQuantity: 0, quantity: 1000, monthlyPace: 86 },
-    { name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 400, monthlyPace: 55 },
-    { name: 'カニパック８８', price: 1211.5, prevQuantity: 0, quantity: 2000, monthlyPace: 273 },
-    { name: 'カニパック９０', price: 982.8, prevQuantity: 0, quantity: 600, monthlyPace: 76 },
-    { name: 'KPKP280粒', price: 1345.1, prevQuantity: 0, quantity: 200, monthlyPace: 25 },
-    { name: 'KPKP 21-S', price: 1437, prevQuantity: 0, quantity: 20, monthlyPace: 3 },
-    { name: 'KPKP 21-H', price: 993.1, prevQuantity: 0, quantity: 150, monthlyPace: 17 },
-    { name: 'カニパックス-A 60g', price: 1290, prevQuantity: 0, quantity: 100, monthlyPace: 20 },
-    { name: 'カニパックアレ', price: 1040, prevQuantity: 0, quantity: 50, monthlyPace: 8 },
-    { name: 'KPLR210粒', price: 3253, prevQuantity: 0, quantity: 300, monthlyPace: 46 },
-    { name: 'キトナコス', price: 1832.6, prevQuantity: 0, quantity: 100, monthlyPace: 15 }
+    { name: 'KP88携帯用', price: 267.3, prevQuantity: 0, quantity: 1000, monthlyPace: 86, orders: [] },
+    { name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 400, monthlyPace: 55, orders: [] },
+    { name: 'カニパック８８', price: 1211.5, prevQuantity: 0, quantity: 2000, monthlyPace: 273, orders: [] },
+    { name: 'カニパック９０', price: 982.8, prevQuantity: 0, quantity: 600, monthlyPace: 76, orders: [] },
+    { name: 'KPKP280粒', price: 1345.1, prevQuantity: 0, quantity: 200, monthlyPace: 25, orders: [] },
+    { name: 'KPKP 21-S', price: 1437, prevQuantity: 0, quantity: 20, monthlyPace: 3, orders: [] },
+    { name: 'KPKP 21-H', price: 993.1, prevQuantity: 0, quantity: 150, monthlyPace: 17, orders: [] },
+    { name: 'カニパックス-A 60g', price: 1290, prevQuantity: 0, quantity: 100, monthlyPace: 20, orders: [] },
+    { name: 'カニパックアレ', price: 1040, prevQuantity: 0, quantity: 50, monthlyPace: 8, orders: [] },
+    { name: 'KPLR210粒', price: 3253, prevQuantity: 0, quantity: 300, monthlyPace: 46, orders: [] },
+    { name: 'キトナコス', price: 1832.6, prevQuantity: 0, quantity: 100, monthlyPace: 15, orders: [] }
   ],
   materials: [
     { name: 'カニパック(240)6本箱36本箱シール', company: 'ウキシマメディカル', price: 2, prevQuantity: 0, quantity: 4459 },
@@ -163,10 +163,10 @@ export default function App() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
 
-  // 出庫・入庫モーダル用状態
+  // 出庫・入庫モーダル
   const [adjustModal, setAdjustModal] = useState({ isOpen: false, item: null, type: '', action: '', amount: '' });
   
-  // ★ 発注記録モーダル用状態
+  // 発注記録モーダル
   const [orderModal, setOrderModal] = useState({ isOpen: false, item: null, amount: '', date: '' });
 
   const [type, setType] = useState('product');
@@ -185,7 +185,6 @@ export default function App() {
   const [isDragOverDocument, setIsDragOverDocument] = useState(false);
   const [draggableRowId, setDraggableRowId] = useState(null);
 
-  // 1日・15日の判定用状態（土日祝を考慮）
   const [orderAlertInfo, setOrderAlertInfo] = useState({ isAlertDay: false, message: '' });
 
   const showToast = (msg) => {
@@ -225,7 +224,6 @@ export default function App() {
     };
     initAuth();
 
-    // 日本の祝日を取得し、土日祝を避けた「実際の営業日」を計算してアラートを出す
     fetch('https://holidays-jp.github.io/api/v1/date.json')
       .then(res => res.json())
       .then(holidays => {
@@ -266,7 +264,6 @@ export default function App() {
         }
       })
       .catch(err => {
-        console.error("祝日カレンダーの取得エラー:", err);
         const todayDate = new Date().getDate();
         if (todayDate === 1 || todayDate === 15) {
           setOrderAlertInfo({ isAlertDay: true, message: `今日は発注確認日です（${todayDate}日）。` });
@@ -282,7 +279,6 @@ export default function App() {
     setLoading(true);
     try { await signInWithEmailAndPassword(auth, email, password); } 
     catch (err) {
-      console.error(err);
       setLoginError('ログインに失敗しました。メールアドレスとパスワードを確認してください。');
       setLoading(false);
     }
@@ -314,9 +310,8 @@ export default function App() {
 
   const updateItem = async (t, id, updates) => {
     if (!user || !isEnvConfigured) return;
-    try {
-      await updateDoc(getDocPath(t + 's', id), updates);
-    } catch (err) { setErrorMessage(`更新エラー: ${err.message}`); }
+    try { await updateDoc(getDocPath(t + 's', id), updates); } 
+    catch (err) { setErrorMessage(`更新エラー: ${err.message}`); }
   };
 
   const removeItem = async (t, id) => {
@@ -335,7 +330,7 @@ export default function App() {
       monthlyPace: type === 'product' ? Number(monthlyPace || 0) : 0,
       company: (type === 'product' ? '-' : company),
       createdAt: Date.now(), order: Date.now(),
-      isOrdered: false, orderedQuantity: null, arrivalDate: null
+      orders: [] // ★ 新しい配列ベースの発注履歴
     };
     try {
       await addDoc(getBasePath(type + 's'), newItem);
@@ -344,7 +339,7 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // 出入庫の実行（システムが気を利かせる処理）
+  // 出入庫の実行（古い発注分から消化する賢い処理）
   const executeAdjustment = async (e) => {
     e.preventDefault();
     if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured) return;
@@ -356,23 +351,42 @@ export default function App() {
     else if (adjustModal.action === 'add') { newQuantity = newQuantity + amount; }
 
     try {
-      const updates = {
-        prevQuantity: adjustModal.item.quantity,
-        quantity: newQuantity
-      };
-
-      // 商品が入庫されたとき、もし「発注済」状態であれば自動的に解除する
+      const updates = { prevQuantity: adjustModal.item.quantity, quantity: newQuantity };
       let autoResetMessage = '';
-      if (adjustModal.action === 'add' && adjustModal.item.isOrdered) {
-        const remainingOrder = (adjustModal.item.orderedQuantity || 0) - amount;
-        if (remainingOrder <= 0) {
-          updates.isOrdered = false;
-          updates.orderedQuantity = null;
-          updates.arrivalDate = null;
-          autoResetMessage = '（発注分の入庫が完了したため、入荷待ち状態を解除しました）';
-        } else {
-          updates.orderedQuantity = remainingOrder;
-          autoResetMessage = `（入荷待ちの残りを ${remainingOrder} 個に更新しました）`;
+
+      if (adjustModal.action === 'add') {
+        // 現在の発注リストを取得（古いデータ形式への互換性も保持）
+        let currentOrders = adjustModal.item.orders || [];
+        if (currentOrders.length === 0 && adjustModal.item.isOrdered) {
+          currentOrders = [{ id: 'legacy', amount: adjustModal.item.orderedQuantity, date: adjustModal.item.arrivalDate }];
+        }
+
+        if (currentOrders.length > 0) {
+          let remainingAdd = amount;
+          let newOrders = [];
+          
+          for (let o of currentOrders) {
+            if (remainingAdd >= o.amount) {
+              remainingAdd -= o.amount; // この発注分は全消化
+            } else if (remainingAdd > 0) {
+              newOrders.push({ ...o, amount: o.amount - remainingAdd }); // 一部消化
+              remainingAdd = 0;
+            } else {
+              newOrders.push(o); // そのまま残す
+            }
+          }
+
+          updates.orders = newOrders;
+          // 後方互換フィールドも更新
+          updates.isOrdered = newOrders.length > 0;
+          updates.orderedQuantity = newOrders.reduce((sum, o) => sum + o.amount, 0);
+          updates.arrivalDate = newOrders.length > 0 ? newOrders[0].date : null;
+          
+          if (newOrders.length === 0) {
+            autoResetMessage = '（すべての発注分の入庫が完了しました）';
+          } else {
+            autoResetMessage = '（到着予定日が古い発注分から入庫を消化しました）';
+          }
         }
       }
 
@@ -382,24 +396,58 @@ export default function App() {
     } catch (err) { setErrorMessage(`処理エラー: ${err.message}`); }
   };
 
-  // 発注記録の保存
+  // 複数回の発注記録を保存
   const executeOrderRecord = async (e) => {
     e.preventDefault();
+    if (!user || !orderModal.item || !orderModal.amount || !orderModal.date || !isEnvConfigured) return;
+    
+    try {
+      let currentOrders = orderModal.item.orders || [];
+      if (currentOrders.length === 0 && orderModal.item.isOrdered) {
+        currentOrders = [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }];
+      }
+
+      // 新しい発注を追加して、日付の古い順に並び替え
+      const newOrder = { id: Date.now().toString(), amount: Number(orderModal.amount), date: orderModal.date };
+      const updatedOrders = [...currentOrders, newOrder].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      await updateDoc(getDocPath('products', orderModal.item.id), {
+        orders: updatedOrders,
+        isOrdered: updatedOrders.length > 0,
+        orderedQuantity: updatedOrders.reduce((sum, o) => sum + o.amount, 0),
+        arrivalDate: updatedOrders.length > 0 ? updatedOrders[0].date : null
+      });
+
+      setOrderModal({ isOpen: false, item: null, amount: '', date: '' });
+      showToast("発注記録を追加しました");
+    } catch (err) { setErrorMessage(`記録エラー: ${err.message}`); }
+  };
+
+  // 特定の発注記録をキャンセル（削除）
+  const cancelSpecificOrder = async (orderIdToRemove) => {
     if (!user || !orderModal.item || !isEnvConfigured) return;
     
     try {
-      const finalQuantity = orderModal.item.isOrdered 
-        ? (orderModal.item.orderedQuantity || 0) + Number(orderModal.amount)
-        : Number(orderModal.amount);
+      let currentOrders = orderModal.item.orders || [];
+      if (currentOrders.length === 0 && orderModal.item.isOrdered) {
+        currentOrders = [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }];
+      }
+
+      const updatedOrders = currentOrders.filter(o => o.id !== orderIdToRemove);
 
       await updateDoc(getDocPath('products', orderModal.item.id), {
-        isOrdered: true,
-        orderedQuantity: finalQuantity,
-        arrivalDate: orderModal.date
+        orders: updatedOrders,
+        isOrdered: updatedOrders.length > 0,
+        orderedQuantity: updatedOrders.reduce((sum, o) => sum + o.amount, 0),
+        arrivalDate: updatedOrders.length > 0 ? updatedOrders[0].date : null
       });
-      setOrderModal({ isOpen: false, item: null, amount: '', date: '' });
-      showToast("発注記録を保存しました");
-    } catch (err) { setErrorMessage(`記録エラー: ${err.message}`); }
+      
+      setOrderModal(prev => ({
+        ...prev,
+        item: { ...prev.item, orders: updatedOrders, isOrdered: updatedOrders.length > 0 }
+      }));
+      showToast("指定された発注をキャンセルしました");
+    } catch (err) { setErrorMessage(`キャンセルエラー: ${err.message}`); }
   };
 
   const restoreInitialData = async () => {
@@ -452,7 +500,8 @@ export default function App() {
             price: Number((row[3] || '0').replace(/[,¥"']/g, '')),
             prevQuantity: Number((row[4] || '0').replace(/[,¥"']/g, '')), 
             quantity: Number((row[5] || '0').replace(/[,¥"']/g, '')),
-            monthlyPace: 0
+            monthlyPace: 0,
+            orders: []
           });
           importCount++;
         }
@@ -522,7 +571,12 @@ export default function App() {
     csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額,月間平均,発注状況\n";
     const addRows = (list, label) => list.forEach(i => {
       let orderStatus = "-";
-      if (label === '商品' && i.isOrdered) orderStatus = `発注済(${i.orderedQuantity}個 / ${i.arrivalDate}予定)`;
+      if (label === '商品') {
+        const curOrders = i.orders || (i.isOrdered ? [{ amount: i.orderedQuantity, date: i.arrivalDate }] : []);
+        if (curOrders.length > 0) {
+          orderStatus = curOrders.map(o => `${o.amount}個(${o.date})`).join(' / ');
+        }
+      }
       csvContent += `${escapeCSV(label)},${escapeCSV(i.name)},${escapeCSV(i.company || '-')},${escapeCSV(formatNum(i.price))},${escapeCSV(formatNum(i.prevQuantity))},${escapeCSV(formatNum(i.quantity))},${escapeCSV(formatNum(i.price * i.quantity))},${escapeCSV(i.monthlyPace || '-')},${escapeCSV(orderStatus)}\n`;
     });
     addRows(inventory.products, "商品"); addRows(inventory.materials, "資材"); addRows(inventory.rawMaterials, "原材料");
@@ -545,7 +599,6 @@ export default function App() {
     );
   }
 
-  // ログイン画面
   if (!user && !loading && !isCanvasEnv) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
@@ -715,7 +768,6 @@ export default function App() {
                       <th className="px-4 py-5">品名</th>
                       {section.type !== 'product' && <th className="px-4 py-5 text-center">取扱会社</th>}
                       {section.type === 'product' && <th className="px-4 py-5 text-center">月間平均</th>}
-                      {/* ★ ステータスヘッダー */}
                       {section.type === 'product' && <th className="px-4 py-5 text-center">ステータス (クリックで記録)</th>}
                       <th className="px-4 py-5 text-center">現在庫 (直接修正)</th>
                       <th className="px-4 py-5 text-center">日々の操作</th>
@@ -728,30 +780,41 @@ export default function App() {
                     {section.list.length === 0 ? (<tr><td colSpan="10" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
                       section.list.map((item, idx) => {
                         const monthlyPace = item.monthlyPace || 0;
-                        const orderPoint = monthlyPace * 6; // 発注点 (6ヶ月分)
-                        const targetInventory = monthlyPace * 9; // 目標在庫 (9ヶ月分)
+                        const orderPoint = monthlyPace * 6;
+                        const targetInventory = monthlyPace * 9;
                         
-                        // ★「実在庫 ＋ 入荷待ち」の合計（有効在庫）で判定する
-                        const effectiveQuantity = item.quantity + (item.isOrdered ? (item.orderedQuantity || 0) : 0);
+                        // ★ 複数発注データの取得
+                        const currentOrders = item.orders || (item.isOrdered ? [{ id: 'legacy', amount: item.orderedQuantity, date: item.arrivalDate }] : []);
+                        const totalOrderedQty = currentOrders.reduce((sum, o) => sum + Number(o.amount), 0);
+                        
+                        const effectiveQuantity = item.quantity + totalOrderedQty;
                         const isUnderStock = monthlyPace > 0 && effectiveQuantity < orderPoint;
                         const recommendQty = Math.max(0, targetInventory - effectiveQuantity);
 
-                        // ★ 入庫予定日までの「在庫枯渇リスク」を判定する
+                        // ★ 枯渇リスクのシミュレーション (時間軸の進行)
                         let stockoutRisk = false;
                         let shortageAmount = 0;
-                        if (item.isOrdered && item.arrivalDate && monthlyPace > 0) {
-                          const arrival = new Date(item.arrivalDate);
-                          const today = new Date();
-                          today.setHours(0, 0, 0, 0);
-                          const diffTime = arrival.getTime() - today.getTime();
-                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                          
-                          if (diffDays > 0) {
-                            const expectedConsumption = (diffDays / 30) * monthlyPace;
-                            if (item.quantity < expectedConsumption) {
-                              stockoutRisk = true;
-                              shortageAmount = Math.ceil(expectedConsumption - item.quantity);
+                        let simulatedInventory = item.quantity;
+                        const todayTime = new Date().setHours(0, 0, 0, 0);
+
+                        if (monthlyPace > 0 && currentOrders.length > 0) {
+                          // 各発注の到着日ごとに判定
+                          for (let i = 0; i < currentOrders.length; i++) {
+                            const o = currentOrders[i];
+                            const arrivalTime = new Date(o.date).getTime();
+                            const diffDays = Math.ceil((arrivalTime - todayTime) / (1000 * 60 * 60 * 24));
+                            
+                            if (diffDays > 0) {
+                              const expectedConsumption = (diffDays / 30) * monthlyPace;
+                              // もし「現在庫」が「次の到着日までの消費予測」に耐えられないならアウト
+                              if (simulatedInventory < expectedConsumption) {
+                                stockoutRisk = true;
+                                shortageAmount = Math.ceil(expectedConsumption - simulatedInventory);
+                                break;
+                              }
                             }
+                            // 耐えられた場合は、到着したとして在庫に加算し、次の発注判定へ
+                            simulatedInventory += Number(o.amount);
                           }
                         }
 
@@ -780,47 +843,43 @@ export default function App() {
                               </td>
                             )}
 
-                            {/* ★ 発注ステータス表示（クリックでモーダルを開く） */}
+                            {/* ★ 発注ステータス表示（複数回発注対応） */}
                             {section.type === 'product' && (
-                              <td className="px-4 py-4 text-center align-middle">
+                              <td className="px-4 py-4 text-center align-top">
                                 <div 
                                   onClick={() => {
-                                    setOrderModal({
-                                      isOpen: true, 
-                                      item, 
-                                      amount: recommendQty || '', 
-                                      date: item.arrivalDate || ''
-                                    });
+                                    setOrderModal({ isOpen: true, item, amount: recommendQty || '', date: '' });
                                   }}
-                                  className="inline-flex flex-col items-center justify-center cursor-pointer p-2 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors group/status relative min-w-[110px]"
+                                  className="inline-flex flex-col items-center justify-start cursor-pointer p-2 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors group/status relative min-w-[120px]"
                                 >
-                                  {item.isOrdered ? (
+                                  {currentOrders.length > 0 ? (
                                     <>
                                       {recommendQty > 0 ? (
                                         <>
                                           <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
                                             <Truck className="w-3 h-3 mr-1" /> 発注済 (不足)
                                           </span>
-                                          <span className="text-[10px] font-bold text-slate-600 mt-1">{item.orderedQuantity}個 ({item.arrivalDate})</span>
                                           <span className="text-[10px] font-black text-red-500 mt-1 whitespace-nowrap">⚠️追加推奨: {recommendQty}</span>
                                         </>
                                       ) : (
-                                        <>
-                                          <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
-                                            <Truck className="w-3 h-3 mr-1" /> 入荷待ち (十分)
-                                          </span>
-                                          <span className="text-[10px] font-bold text-slate-600 mt-1">{item.orderedQuantity}個 ({item.arrivalDate})</span>
-                                        </>
-                                      )}
-                                      
-                                      {/* ★ 入庫前の枯渇リスク警告 */}
-                                      {stockoutRisk && (
-                                        <span className="text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded mt-1 border border-red-200 text-center leading-tight shadow-sm w-full">
-                                          ⚠️入庫前に枯渇予測<br/>(約{shortageAmount}個不足)
+                                        <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm mb-1">
+                                          <Truck className="w-3 h-3 mr-1" /> 入荷待ち (十分)
                                         </span>
                                       )}
                                       
-                                      <span className="text-[8px] font-black text-indigo-400 mt-1 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで追加発注</span>
+                                      {/* 内訳の表示 */}
+                                      <div className="w-full mt-1.5 pt-1.5 border-t border-slate-200/50 flex flex-col items-center">
+                                        <span className="text-[10px] font-black text-slate-700">計 {totalOrderedQty} 個</span>
+                                        <div className="text-[8px] text-slate-500 mt-0.5 leading-tight text-center max-h-[40px] overflow-hidden group-hover/status:max-h-none transition-all">
+                                          {currentOrders.map((o, i) => <div key={i}>{o.date}: {o.amount}個</div>)}
+                                        </div>
+                                      </div>
+                                      
+                                      {stockoutRisk && (
+                                        <span className="text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded mt-1.5 border border-red-200 text-center leading-tight shadow-sm w-full">
+                                          ⚠️入庫前に枯渇予測<br/>(約{shortageAmount}個不足)
+                                        </span>
+                                      )}
                                     </>
                                   ) : isUnderStock ? (
                                     <>
@@ -828,16 +887,13 @@ export default function App() {
                                         <AlertTriangle className="w-3 h-3 mr-1" /> 発注推奨
                                       </span>
                                       <span className="text-[10px] font-bold text-slate-500 mt-1">推奨: {recommendQty}</span>
-                                      <span className="text-[8px] font-black text-indigo-400 mt-1 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで発注記録</span>
                                     </>
                                   ) : (
-                                    <>
-                                      <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center">
-                                        <Check className="w-3 h-3 mr-1" /> 良好
-                                      </span>
-                                      <span className="text-[8px] font-black text-indigo-400 mt-1 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで発注記録</span>
-                                    </>
+                                    <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center">
+                                      <Check className="w-3 h-3 mr-1" /> 良好
+                                    </span>
                                   )}
+                                  <span className="text-[8px] font-black text-indigo-400 mt-2 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで詳細・追加</span>
                                 </div>
                               </td>
                             )}
@@ -874,7 +930,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Modals */}
+      {/* CSV Import Modal */}
       {isImportModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -966,28 +1022,59 @@ export default function App() {
         </div>
       )}
 
-      {/* ★ 発注記録モーダル */}
+      {/* ★ 複数発注対応：発注記録モーダル */}
       {orderModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 border-blue-400">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-blue-400">
             <div className="px-6 py-4 flex items-center justify-between bg-blue-50">
               <h3 className="text-lg font-black flex items-center text-blue-700">
                 <ShoppingCart className="w-5 h-5 mr-2" />
-                {orderModal.item?.name} の{orderModal.item?.isOrdered ? '追加発注' : '発注記録'}
+                {orderModal.item?.name} の発注管理
               </h3>
               <button onClick={() => setOrderModal({ isOpen: false, item: null, amount: '', date: '' })} className="text-slate-400 p-1"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6">
-              <form onSubmit={executeOrderRecord} className="space-y-6">
-                {orderModal.item?.isOrdered && (
-                  <div className="bg-blue-100 p-3 rounded-xl border border-blue-200">
-                    <p className="text-xs font-bold text-blue-800 text-center">
-                      現在 <strong>{orderModal.item.orderedQuantity}個</strong> を発注済です。<br/>追加する数量を入力してください。
-                    </p>
-                  </div>
-                )}
+              
+              {/* 既存の発注記録リスト */}
+              {(() => {
+                const curOrders = orderModal.item?.orders || (orderModal.item?.isOrdered ? [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }] : []);
+                if (curOrders.length > 0) {
+                  return (
+                    <div className="mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                      <h4 className="text-xs font-black text-slate-500 mb-3 uppercase flex items-center">
+                        <Truck className="w-4 h-4 mr-1" /> 現在の入荷待ちリスト
+                      </h4>
+                      <div className="space-y-2">
+                        {curOrders.map((o) => (
+                          <div key={o.id} className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                            <div className="flex items-center space-x-3">
+                              <span className="text-sm font-black text-indigo-600">{o.date} 着</span>
+                              <span className="text-sm font-bold text-slate-700">{o.amount} 個</span>
+                            </div>
+                            <button 
+                              type="button" 
+                              onClick={() => cancelSpecificOrder(o.id)}
+                              className="text-slate-300 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                              title="この発注を取り消す"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* 新規の発注フォーム */}
+              <form onSubmit={executeOrderRecord} className="space-y-4">
+                <h4 className="text-xs font-black text-blue-600 mb-2 uppercase border-b border-blue-100 pb-2 flex items-center">
+                  <Plus className="w-4 h-4 mr-1" /> 新しい発注を記録する
+                </h4>
                 
-                {/* ★ カレンダーの日付からリアルタイムで枯渇予測の警告を出す */}
+                {/* リアルタイム枯渇予測 */}
                 {(() => {
                   if (orderModal.item && orderModal.date && orderModal.item.monthlyPace > 0) {
                     const arrival = new Date(orderModal.date);
@@ -996,13 +1083,18 @@ export default function App() {
                     const diffDays = Math.ceil((arrival.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                     if (diffDays > 0) {
                       const expectedConsumption = (diffDays / 30) * orderModal.item.monthlyPace;
-                      if (orderModal.item.quantity < expectedConsumption) {
-                        const shortage = Math.ceil(expectedConsumption - orderModal.item.quantity);
+                      
+                      const curOrders = orderModal.item?.orders || (orderModal.item?.isOrdered ? [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }] : []);
+                      const preArrivals = curOrders.filter(o => new Date(o.date) < arrival).reduce((sum, o) => sum + Number(o.amount), 0);
+                      const availableQty = orderModal.item.quantity + preArrivals;
+
+                      if (availableQty < expectedConsumption) {
+                        const shortage = Math.ceil(expectedConsumption - availableQty);
                         return (
-                          <div className="bg-red-50 p-3 rounded-xl border border-red-200 mt-4 animate-pulse shadow-sm">
+                          <div className="bg-red-50 p-3 rounded-xl border border-red-200 animate-pulse shadow-sm">
                             <p className="text-[11px] font-bold text-red-700 flex items-start leading-tight">
                               <AlertTriangle className="w-4 h-4 mr-1 flex-shrink-0" />
-                              指定された予定日（{diffDays}日後）だと、到着前に現在の在庫が尽きる恐れがあります。（約{shortage}個ショート予測）
+                              指定日（{diffDays}日後）だと、到着前に在庫が尽きる恐れがあります。（約{shortage}個不足予測）
                             </p>
                           </div>
                         );
@@ -1012,29 +1104,20 @@ export default function App() {
                   return null;
                 })()}
                 
-                <div>
-                  <label className="block text-xs font-black text-slate-400 mb-2 uppercase">
-                    {orderModal.item?.isOrdered ? '追加発注する数量' : '発注数量'}
-                  </label>
-                  <input type="number" required min="1" value={orderModal.amount} onChange={(e) => setOrderModal({ ...orderModal, amount: e.target.value })} className="w-full px-5 py-3 text-xl font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase">数量</label>
+                    <input type="number" required min="1" value={orderModal.amount} onChange={(e) => setOrderModal({ ...orderModal, amount: e.target.value })} className="w-full px-4 py-3 text-lg font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase">予定日</label>
+                    <input type="date" required value={orderModal.date} onChange={(e) => setOrderModal({ ...orderModal, date: e.target.value })} className="w-full px-4 py-3 text-sm font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-400 mb-2 uppercase">入庫予定日</label>
-                  <input type="date" required value={orderModal.date} onChange={(e) => setOrderModal({ ...orderModal, date: e.target.value })} className="w-full px-5 py-3 text-lg font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
-                </div>
-                <div className="flex flex-col space-y-3 pt-2">
-                  <button type="submit" className="w-full py-4 rounded-xl text-white font-black shadow-lg bg-blue-500 hover:bg-blue-600 transition-colors active:scale-95">発注済として記録する</button>
-                  {orderModal.item?.isOrdered && (
-                    <button type="button" onClick={async () => {
-                      await updateDoc(getDocPath('products', orderModal.item.id), {
-                        isOrdered: false, orderedQuantity: null, arrivalDate: null
-                      });
-                      setOrderModal({ isOpen: false, item: null, amount: '', date: '' });
-                      showToast("発注記録をリセットしました");
-                    }} className="w-full py-3 rounded-xl text-red-500 bg-red-50 font-black hover:bg-red-100 transition-colors border border-red-200 active:scale-95">
-                      発注状態をすべて解除（取り消し）
-                    </button>
-                  )}
+                <div className="pt-2">
+                  <button type="submit" className="w-full py-4 rounded-xl text-white font-black shadow-lg bg-blue-500 hover:bg-blue-600 transition-colors active:scale-95 flex justify-center items-center">
+                    記録を追加する
+                  </button>
                 </div>
               </form>
             </div>
