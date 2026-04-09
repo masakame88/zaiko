@@ -689,8 +689,8 @@ export default function App() {
         </header>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl p-6 text-white shadow-xl shadow-indigo-200">
-            <div className="flex items-center space-x-2 text-indigo-100 mb-2"><Wallet className="w-5 h-5" /><h2 className="text-lg font-bold">総合計金額</h2></div>
+          <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl p-6 text-white shadow-xl shadow-indigo-200 flex flex-col justify-between">
+            <div className="flex items-center space-x-2 text-indigo-100 mb-2"><Wallet className="w-5 h-5" /><h2 className="text-lg font-bold whitespace-nowrap">総合計金額</h2></div>
             <p className="text-4xl font-black tracking-tight">{formatCurrency(totals.grandTotal)}</p>
           </div>
           {[
@@ -698,14 +698,16 @@ export default function App() {
             { label: '資材', val: totals.materials, icon: Layers, col: 'amber', sub: [{ l: '自社', v: totals.materialsOur }, { l: 'ウキシマ', v: totals.materialsUkishima }, { l: '中日本', v: totals.materialsNakanihon }] },
             { label: '原材料', val: totals.rawMaterials, icon: Shapes, col: 'blue', sub: [{ l: '自社', v: totals.rawMaterialsOur }, { l: 'ウキシマ', v: totals.rawMaterialsUkishima }, { l: '中日本', v: totals.rawMaterialsNakanihon }] }
           ].map(s => (
-            <div key={s.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all">
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center space-x-2"><s.icon className={`w-5 h-5 text-${s.col}-500`} /><h2 className="text-lg font-bold text-slate-700">{s.label} 合計</h2></div>
-                <p className="text-2xl font-black text-slate-800">{formatCurrency(s.val)}</p>
+            <div key={s.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all flex flex-col justify-between">
+              <div>
+                <div className="flex items-center space-x-2 mb-2"><s.icon className={`w-5 h-5 text-${s.col}-500`} /><h2 className="text-lg font-bold text-slate-700 whitespace-nowrap">{s.label} 合計</h2></div>
+                <p className="text-3xl font-black text-slate-800">{formatCurrency(s.val)}</p>
               </div>
-              <div className="mt-4 space-y-1 text-[10px] text-slate-400 font-black uppercase tracking-wider border-t border-slate-50 pt-2">
-                {s.sub.map(item => <div key={item.l} className="flex justify-between"><span>{item.l}</span><span className="text-slate-800">{formatCurrency(item.v)}</span></div>)}
-              </div>
+              {s.sub.length > 0 && (
+                <div className="mt-4 space-y-1 text-[10px] text-slate-400 font-black uppercase tracking-wider border-t border-slate-50 pt-2">
+                  {s.sub.map(item => <div key={item.l} className="flex justify-between"><span>{item.l}</span><span className="text-slate-800">{formatCurrency(item.v)}</span></div>)}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -727,16 +729,16 @@ export default function App() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50/50 text-slate-400 text-[10px] font-black uppercase border-b border-slate-100">
-                      <th className="px-4 py-5 w-12 text-center">#</th>
-                      <th className="px-4 py-5">品名</th>
-                      {section.type !== 'product' && <th className="px-4 py-5 text-center">取扱会社</th>}
-                      {section.type === 'product' && <th className="px-4 py-5 text-center">月間平均</th>}
-                      {section.type === 'product' && <th className="px-4 py-5 text-center">ステータス (クリックで記録)</th>}
-                      <th className="px-4 py-5 text-center">現在庫 (直接修正)</th>
-                      <th className="px-4 py-5 text-center">日々の操作</th>
-                      <th className="px-6 py-5 text-right">単価</th>
-                      <th className="px-6 py-5 text-right">合計</th>
-                      <th className="px-6 py-5 text-center w-16">削</th>
+                      <th className="px-4 py-5 w-12 text-center whitespace-nowrap">#</th>
+                      <th className="px-4 py-5 whitespace-nowrap">品名</th>
+                      {section.type !== 'product' && <th className="px-4 py-5 text-center whitespace-nowrap">取扱会社</th>}
+                      {section.type === 'product' && <th className="px-4 py-5 text-center whitespace-nowrap">月間平均</th>}
+                      {section.type === 'product' && <th className="px-4 py-5 text-center whitespace-nowrap">ステータス (クリックで記録)</th>}
+                      <th className="px-4 py-5 text-center whitespace-nowrap">現在庫 (直接修正)</th>
+                      <th className="px-4 py-5 text-center whitespace-nowrap">日々の操作</th>
+                      <th className="px-6 py-5 text-right whitespace-nowrap">単価</th>
+                      <th className="px-6 py-5 text-right whitespace-nowrap">合計</th>
+                      <th className="px-6 py-5 text-center w-16 whitespace-nowrap">削</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -864,17 +866,17 @@ export default function App() {
                             
                             <td className="px-4 py-4 text-center">
                               <div className="flex items-center justify-center space-x-1">
-                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '' })} className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
-                                  <Minus className="w-3 h-3 mr-1" />出庫
+                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
+                                  <Minus className="w-3 h-3 mr-1 flex-shrink-0" />出庫
                                 </button>
-                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'add', amount: '' })} className="px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-xs font-black rounded-lg transition-colors flex items-center border border-emerald-100">
-                                  <Plus className="w-3 h-3 mr-1" />入庫
+                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'add', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-xs font-black rounded-lg transition-colors flex items-center border border-emerald-100">
+                                  <Plus className="w-3 h-3 mr-1 flex-shrink-0" />入庫
                                 </button>
                               </div>
                             </td>
 
-                            <td className="px-6 py-4 text-right font-bold text-slate-500"><EditableCell value={item.price} type="number" format={formatCurrency} onUpdate={(p) => updateItem(section.type, item.id, { price: p })} /></td>
-                            <td className="px-6 py-4 text-right font-black text-slate-900">{formatCurrency(item.price * item.quantity)}</td>
+                            <td className="px-6 py-4 text-right font-bold text-slate-500 whitespace-nowrap"><EditableCell value={item.price} type="number" format={formatCurrency} onUpdate={(p) => updateItem(section.type, item.id, { price: p })} /></td>
+                            <td className="px-6 py-4 text-right font-black text-slate-900 whitespace-nowrap">{formatCurrency(item.price * item.quantity)}</td>
                             <td className="px-6 py-4 text-center">
                               <button onClick={() => removeItem(section.type, item.id)} className="text-slate-300 hover:text-red-500 transition-all p-2 rounded-xl hover:bg-red-50"><Trash2 className="w-5 h-5" /></button>
                             </td>
