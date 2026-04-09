@@ -344,7 +344,7 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // ★ 出入庫の実行（システムが気を利かせる処理）
+  // 出入庫の実行（システムが気を利かせる処理）
   const executeAdjustment = async (e) => {
     e.preventDefault();
     if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured) return;
@@ -736,6 +736,25 @@ export default function App() {
                         const isUnderStock = monthlyPace > 0 && effectiveQuantity < orderPoint;
                         const recommendQty = Math.max(0, targetInventory - effectiveQuantity);
 
+                        // ★ 入庫予定日までの「在庫枯渇リスク」を判定する
+                        let stockoutRisk = false;
+                        let shortageAmount = 0;
+                        if (item.isOrdered && item.arrivalDate && monthlyPace > 0) {
+                          const arrival = new Date(item.arrivalDate);
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const diffTime = arrival.getTime() - today.getTime();
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          
+                          if (diffDays > 0) {
+                            const expectedConsumption = (diffDays / 30) * monthlyPace;
+                            if (item.quantity < expectedConsumption) {
+                              stockoutRisk = true;
+                              shortageAmount = Math.ceil(expectedConsumption - item.quantity);
+                            }
+                          }
+                        }
+
                         return (
                           <tr key={item.id} 
                             draggable={draggableRowId === item.id} 
@@ -793,6 +812,14 @@ export default function App() {
                                           <span className="text-[10px] font-bold text-slate-600 mt-1">{item.orderedQuantity}個 ({item.arrivalDate})</span>
                                         </>
                                       )}
+                                      
+                                      {/* ★ 入庫前の枯渇リスク警告 */}
+                                      {stockoutRisk && (
+                                        <span className="text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded mt-1 border border-red-200 text-center leading-tight shadow-sm w-full">
+                                          ⚠️入庫前に枯渇予測<br/>(約{shortageAmount}個不足)
+                                        </span>
+                                      )}
+                                      
                                       <span className="text-[8px] font-black text-indigo-400 mt-1 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで追加発注</span>
                                     </>
                                   ) : isUnderStock ? (
@@ -959,6 +986,32 @@ export default function App() {
                     </p>
                   </div>
                 )}
+                
+                {/* ★ カレンダーの日付からリアルタイムで枯渇予測の警告を出す */}
+                {(() => {
+                  if (orderModal.item && orderModal.date && orderModal.item.monthlyPace > 0) {
+                    const arrival = new Date(orderModal.date);
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const diffDays = Math.ceil((arrival.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                    if (diffDays > 0) {
+                      const expectedConsumption = (diffDays / 30) * orderModal.item.monthlyPace;
+                      if (orderModal.item.quantity < expectedConsumption) {
+                        const shortage = Math.ceil(expectedConsumption - orderModal.item.quantity);
+                        return (
+                          <div className="bg-red-50 p-3 rounded-xl border border-red-200 mt-4 animate-pulse shadow-sm">
+                            <p className="text-[11px] font-bold text-red-700 flex items-start leading-tight">
+                              <AlertTriangle className="w-4 h-4 mr-1 flex-shrink-0" />
+                              指定された予定日（{diffDays}日後）だと、到着前に現在の在庫が尽きる恐れがあります。（約{shortage}個ショート予測）
+                            </p>
+                          </div>
+                        );
+                      }
+                    }
+                  }
+                  return null;
+                })()}
+                
                 <div>
                   <label className="block text-xs font-black text-slate-400 mb-2 uppercase">
                     {orderModal.item?.isOrdered ? '追加発注する数量' : '発注数量'}
