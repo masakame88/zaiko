@@ -1036,8 +1036,67 @@ export default function App() {
                 <h4 className="text-xs font-black text-blue-600 mb-2 uppercase border-b border-blue-100 pb-2 flex items-center">
                   <Plus className="w-4 h-4 mr-1" /> 新しい発注を記録する
                 </h4>
+
+                {/* ★ 先回りした在庫枯渇予測日（デッドライン）の提示 */}
+                {(() => {
+                  if (orderModal.item && orderModal.item.monthlyPace > 0) {
+                    const curOrders = orderModal.item.orders || (orderModal.item.isOrdered ? [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }] : []);
+                    const sortedOrders = [...curOrders].sort((a, b) => new Date(a.date) - new Date(b.date));
+                    
+                    let currentQty = orderModal.item.quantity;
+                    let lastDate = new Date();
+                    lastDate.setHours(0,0,0,0);
+                    const pacePerDay = orderModal.item.monthlyPace / 30;
+                    
+                    let isStockout = false;
+                    let stockoutDate = null;
+
+                    for (let o of sortedOrders) {
+                      const arrivalDate = new Date(o.date);
+                      const diffDays = Math.max(0, (arrivalDate.getTime() - lastDate.getTime()) / (1000*60*60*24));
+                      const consumption = diffDays * pacePerDay;
+
+                      if (currentQty < consumption) {
+                        const daysUntilEmpty = currentQty / pacePerDay;
+                        stockoutDate = new Date(lastDate.getTime() + daysUntilEmpty * 24*60*60*1000);
+                        isStockout = true;
+                        break;
+                      } else {
+                        currentQty -= consumption;
+                        currentQty += Number(o.amount);
+                        lastDate = arrivalDate;
+                      }
+                    }
+
+                    if (!isStockout) {
+                      const daysUntilEmpty = currentQty / pacePerDay;
+                      stockoutDate = new Date(lastDate.getTime() + daysUntilEmpty * 24*60*60*1000);
+                    }
+
+                    if (stockoutDate) {
+                      const diffTotalDays = Math.max(0, Math.ceil((stockoutDate.getTime() - new Date().setHours(0,0,0,0)) / (1000*60*60*24)));
+                      const y = stockoutDate.getFullYear();
+                      const m = stockoutDate.getMonth() + 1;
+                      const d = stockoutDate.getDate();
+                      
+                      const isDanger = diffTotalDays <= 30; // 30日以内に尽きる場合は赤色で警告
+                      
+                      return (
+                        <div className={`p-3 rounded-xl border ${isDanger ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
+                          <h4 className={`text-[10px] font-black uppercase flex items-center mb-1 ${isDanger ? 'text-red-500' : 'text-slate-500'}`}>
+                            <Calendar className="w-3 h-3 mr-1" /> 在庫が完全に枯渇する予測日 (デッドライン)
+                          </h4>
+                          <p className={`text-sm font-bold ${isDanger ? 'text-red-700' : 'text-slate-700'}`}>
+                            {y}年{m}月{d}日 <span className="text-xs opacity-70 font-black">（約 {diffTotalDays} 日後）</span>
+                          </p>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                })()}
                 
-                {/* リアルタイム枯渇予測 */}
+                {/* リアルタイム枯渇予測（入力した日付がデッドラインを超えた場合） */}
                 {(() => {
                   if (orderModal.item && orderModal.date && orderModal.item.monthlyPace > 0) {
                     const arrival = new Date(orderModal.date);
@@ -1054,7 +1113,7 @@ export default function App() {
                       if (availableQty < expectedConsumption) {
                         const shortage = Math.ceil(expectedConsumption - availableQty);
                         return (
-                          <div className="bg-red-50 p-3 rounded-xl border border-red-200 animate-pulse shadow-sm">
+                          <div className="bg-red-50 p-3 rounded-xl border border-red-200 animate-pulse shadow-sm mt-2">
                             <p className="text-[11px] font-bold text-red-700 flex items-start leading-tight">
                               <AlertTriangle className="w-4 h-4 mr-1 flex-shrink-0" />
                               指定日（{diffDays}日後）だと、到着前に在庫が尽きる恐れがあります。（約{shortage}個不足予測）
@@ -1067,7 +1126,7 @@ export default function App() {
                   return null;
                 })()}
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 mt-2">
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase">数量</label>
                     <input type="number" required min="1" value={orderModal.amount} onChange={(e) => setOrderModal({ ...orderModal, amount: e.target.value })} className="w-full px-4 py-3 text-lg font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
