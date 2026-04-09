@@ -364,10 +364,16 @@ export default function App() {
       // 商品が入庫されたとき、もし「発注済」状態であれば自動的に解除する
       let autoResetMessage = '';
       if (adjustModal.action === 'add' && adjustModal.item.isOrdered) {
-        updates.isOrdered = false;
-        updates.orderedQuantity = null;
-        updates.arrivalDate = null;
-        autoResetMessage = '（発注記録も自動で解除しました）';
+        const remainingOrder = (adjustModal.item.orderedQuantity || 0) - amount;
+        if (remainingOrder <= 0) {
+          updates.isOrdered = false;
+          updates.orderedQuantity = null;
+          updates.arrivalDate = null;
+          autoResetMessage = '（発注分の入庫が完了したため、入荷待ち状態を解除しました）';
+        } else {
+          updates.orderedQuantity = remainingOrder;
+          autoResetMessage = `（入荷待ちの残りを ${remainingOrder} 個に更新しました）`;
+        }
       }
 
       await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), updates);
@@ -382,9 +388,13 @@ export default function App() {
     if (!user || !orderModal.item || !isEnvConfigured) return;
     
     try {
+      const finalQuantity = orderModal.item.isOrdered 
+        ? (orderModal.item.orderedQuantity || 0) + Number(orderModal.amount)
+        : Number(orderModal.amount);
+
       await updateDoc(getDocPath('products', orderModal.item.id), {
         isOrdered: true,
-        orderedQuantity: Number(orderModal.amount),
+        orderedQuantity: finalQuantity,
         arrivalDate: orderModal.date
       });
       setOrderModal({ isOpen: false, item: null, amount: '', date: '' });
@@ -720,8 +730,11 @@ export default function App() {
                         const monthlyPace = item.monthlyPace || 0;
                         const orderPoint = monthlyPace * 6; // 発注点 (6ヶ月分)
                         const targetInventory = monthlyPace * 9; // 目標在庫 (9ヶ月分)
-                        const isUnderStock = monthlyPace > 0 && item.quantity < orderPoint;
-                        const recommendQty = Math.max(0, targetInventory - item.quantity);
+                        
+                        // ★「実在庫 ＋ 入荷待ち」の合計（有効在庫）で判定する
+                        const effectiveQuantity = item.quantity + (item.isOrdered ? (item.orderedQuantity || 0) : 0);
+                        const isUnderStock = monthlyPace > 0 && effectiveQuantity < orderPoint;
+                        const recommendQty = Math.max(0, targetInventory - effectiveQuantity);
 
                         return (
                           <tr key={item.id} 
@@ -756,19 +769,31 @@ export default function App() {
                                     setOrderModal({
                                       isOpen: true, 
                                       item, 
-                                      amount: item.orderedQuantity || recommendQty || '', 
+                                      amount: recommendQty || '', 
                                       date: item.arrivalDate || ''
                                     });
                                   }}
-                                  className="inline-flex flex-col items-center justify-center cursor-pointer p-2 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors group/status relative min-w-[100px]"
+                                  className="inline-flex flex-col items-center justify-center cursor-pointer p-2 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors group/status relative min-w-[110px]"
                                 >
                                   {item.isOrdered ? (
                                     <>
-                                      <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
-                                        <Truck className="w-3 h-3 mr-1" /> 発注済
-                                      </span>
-                                      <span className="text-[10px] font-bold text-slate-600 mt-1">{item.arrivalDate} 予定</span>
-                                      <span className="text-[10px] font-bold text-slate-600">{item.orderedQuantity} 個</span>
+                                      {recommendQty > 0 ? (
+                                        <>
+                                          <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
+                                            <Truck className="w-3 h-3 mr-1" /> 発注済 (不足)
+                                          </span>
+                                          <span className="text-[10px] font-bold text-slate-600 mt-1">{item.orderedQuantity}個 ({item.arrivalDate})</span>
+                                          <span className="text-[10px] font-black text-red-500 mt-1 whitespace-nowrap">⚠️追加推奨: {recommendQty}</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
+                                            <Truck className="w-3 h-3 mr-1" /> 入荷待ち (十分)
+                                          </span>
+                                          <span className="text-[10px] font-bold text-slate-600 mt-1">{item.orderedQuantity}個 ({item.arrivalDate})</span>
+                                        </>
+                                      )}
+                                      <span className="text-[8px] font-black text-indigo-400 mt-1 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで追加発注</span>
                                     </>
                                   ) : isUnderStock ? (
                                     <>
@@ -921,14 +946,23 @@ export default function App() {
             <div className="px-6 py-4 flex items-center justify-between bg-blue-50">
               <h3 className="text-lg font-black flex items-center text-blue-700">
                 <ShoppingCart className="w-5 h-5 mr-2" />
-                {orderModal.item?.name} の発注記録
+                {orderModal.item?.name} の{orderModal.item?.isOrdered ? '追加発注' : '発注記録'}
               </h3>
               <button onClick={() => setOrderModal({ isOpen: false, item: null, amount: '', date: '' })} className="text-slate-400 p-1"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6">
               <form onSubmit={executeOrderRecord} className="space-y-6">
+                {orderModal.item?.isOrdered && (
+                  <div className="bg-blue-100 p-3 rounded-xl border border-blue-200">
+                    <p className="text-xs font-bold text-blue-800 text-center">
+                      現在 <strong>{orderModal.item.orderedQuantity}個</strong> を発注済です。<br/>追加する数量を入力してください。
+                    </p>
+                  </div>
+                )}
                 <div>
-                  <label className="block text-xs font-black text-slate-400 mb-2 uppercase">発注数量</label>
+                  <label className="block text-xs font-black text-slate-400 mb-2 uppercase">
+                    {orderModal.item?.isOrdered ? '追加発注する数量' : '発注数量'}
+                  </label>
                   <input type="number" required min="1" value={orderModal.amount} onChange={(e) => setOrderModal({ ...orderModal, amount: e.target.value })} className="w-full px-5 py-3 text-xl font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
                 </div>
                 <div>
@@ -945,7 +979,7 @@ export default function App() {
                       setOrderModal({ isOpen: false, item: null, amount: '', date: '' });
                       showToast("発注記録をリセットしました");
                     }} className="w-full py-3 rounded-xl text-red-500 bg-red-50 font-black hover:bg-red-100 transition-colors border border-red-200 active:scale-95">
-                      発注状態を解除（取り消し）
+                      発注状態をすべて解除（取り消し）
                     </button>
                   )}
                 </div>
