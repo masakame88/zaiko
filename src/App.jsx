@@ -330,7 +330,7 @@ export default function App() {
       monthlyPace: type === 'product' ? Number(monthlyPace || 0) : 0,
       company: (type === 'product' ? '-' : company),
       createdAt: Date.now(), order: Date.now(),
-      orders: [] // ★ 新しい配列ベースの発注履歴
+      orders: [] // 新しい配列ベースの発注履歴
     };
     try {
       await addDoc(getBasePath(type + 's'), newItem);
@@ -339,7 +339,7 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // 出入庫の実行（古い発注分から消化する賢い処理）
+  // 出入庫の実行（実数をそのまま反映・自動消化は廃止）
   const executeAdjustment = async (e) => {
     e.preventDefault();
     if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured) return;
@@ -352,47 +352,10 @@ export default function App() {
 
     try {
       const updates = { prevQuantity: adjustModal.item.quantity, quantity: newQuantity };
-      let autoResetMessage = '';
-
-      if (adjustModal.action === 'add') {
-        // 現在の発注リストを取得（古いデータ形式への互換性も保持）
-        let currentOrders = adjustModal.item.orders || [];
-        if (currentOrders.length === 0 && adjustModal.item.isOrdered) {
-          currentOrders = [{ id: 'legacy', amount: adjustModal.item.orderedQuantity, date: adjustModal.item.arrivalDate }];
-        }
-
-        if (currentOrders.length > 0) {
-          let remainingAdd = amount;
-          let newOrders = [];
-          
-          for (let o of currentOrders) {
-            if (remainingAdd >= o.amount) {
-              remainingAdd -= o.amount; // この発注分は全消化
-            } else if (remainingAdd > 0) {
-              newOrders.push({ ...o, amount: o.amount - remainingAdd }); // 一部消化
-              remainingAdd = 0;
-            } else {
-              newOrders.push(o); // そのまま残す
-            }
-          }
-
-          updates.orders = newOrders;
-          // 後方互換フィールドも更新
-          updates.isOrdered = newOrders.length > 0;
-          updates.orderedQuantity = newOrders.reduce((sum, o) => sum + o.amount, 0);
-          updates.arrivalDate = newOrders.length > 0 ? newOrders[0].date : null;
-          
-          if (newOrders.length === 0) {
-            autoResetMessage = '（すべての発注分の入庫が完了しました）';
-          } else {
-            autoResetMessage = '（到着予定日が古い発注分から入庫を消化しました）';
-          }
-        }
-      }
 
       await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), updates);
       setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' });
-      showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了しました${autoResetMessage}`);
+      showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了しました`);
     } catch (err) { setErrorMessage(`処理エラー: ${err.message}`); }
   };
 
@@ -423,8 +386,8 @@ export default function App() {
     } catch (err) { setErrorMessage(`記録エラー: ${err.message}`); }
   };
 
-  // 特定の発注記録をキャンセル（削除）
-  const cancelSpecificOrder = async (orderIdToRemove) => {
+  // ★ 特定の発注記録をリストから削除（完了扱い）
+  const removeSpecificOrder = async (orderIdToRemove) => {
     if (!user || !orderModal.item || !isEnvConfigured) return;
     
     try {
@@ -446,8 +409,8 @@ export default function App() {
         ...prev,
         item: { ...prev.item, orders: updatedOrders, isOrdered: updatedOrders.length > 0 }
       }));
-      showToast("指定された発注をキャンセルしました");
-    } catch (err) { setErrorMessage(`キャンセルエラー: ${err.message}`); }
+      showToast("発注分を完了としてリストから削除しました");
+    } catch (err) { setErrorMessage(`エラー: ${err.message}`); }
   };
 
   const restoreInitialData = async () => {
@@ -783,7 +746,7 @@ export default function App() {
                         const orderPoint = monthlyPace * 6;
                         const targetInventory = monthlyPace * 9;
                         
-                        // ★ 複数発注データの取得
+                        // 複数発注データの取得
                         const currentOrders = item.orders || (item.isOrdered ? [{ id: 'legacy', amount: item.orderedQuantity, date: item.arrivalDate }] : []);
                         const totalOrderedQty = currentOrders.reduce((sum, o) => sum + Number(o.amount), 0);
                         
@@ -791,14 +754,13 @@ export default function App() {
                         const isUnderStock = monthlyPace > 0 && effectiveQuantity < orderPoint;
                         const recommendQty = Math.max(0, targetInventory - effectiveQuantity);
 
-                        // ★ 枯渇リスクのシミュレーション (時間軸の進行)
+                        // 枯渇リスクのシミュレーション (時間軸の進行)
                         let stockoutRisk = false;
                         let shortageAmount = 0;
                         let simulatedInventory = item.quantity;
                         const todayTime = new Date().setHours(0, 0, 0, 0);
 
                         if (monthlyPace > 0 && currentOrders.length > 0) {
-                          // 各発注の到着日ごとに判定
                           for (let i = 0; i < currentOrders.length; i++) {
                             const o = currentOrders[i];
                             const arrivalTime = new Date(o.date).getTime();
@@ -806,14 +768,12 @@ export default function App() {
                             
                             if (diffDays > 0) {
                               const expectedConsumption = (diffDays / 30) * monthlyPace;
-                              // もし「現在庫」が「次の到着日までの消費予測」に耐えられないならアウト
                               if (simulatedInventory < expectedConsumption) {
                                 stockoutRisk = true;
                                 shortageAmount = Math.ceil(expectedConsumption - simulatedInventory);
                                 break;
                               }
                             }
-                            // 耐えられた場合は、到着したとして在庫に加算し、次の発注判定へ
                             simulatedInventory += Number(o.amount);
                           }
                         }
@@ -843,7 +803,7 @@ export default function App() {
                               </td>
                             )}
 
-                            {/* ★ 発注ステータス表示（複数回発注対応） */}
+                            {/* 発注ステータス表示 */}
                             {section.type === 'product' && (
                               <td className="px-4 py-4 text-center align-top">
                                 <div 
@@ -1022,7 +982,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ★ 複数発注対応：発注記録モーダル */}
+      {/* ★ 発注記録モーダル */}
       {orderModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-blue-400">
@@ -1046,22 +1006,25 @@ export default function App() {
                       </h4>
                       <div className="space-y-2">
                         {curOrders.map((o) => (
-                          <div key={o.id} className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-slate-100">
+                          <div key={o.id} className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-slate-100 hover:border-emerald-200 transition-colors group">
                             <div className="flex items-center space-x-3">
                               <span className="text-sm font-black text-indigo-600">{o.date} 着</span>
                               <span className="text-sm font-bold text-slate-700">{o.amount} 個</span>
                             </div>
                             <button 
                               type="button" 
-                              onClick={() => cancelSpecificOrder(o.id)}
-                              className="text-slate-300 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                              title="この発注を取り消す"
+                              onClick={() => removeSpecificOrder(o.id)}
+                              className="text-emerald-500 hover:text-white p-1.5 bg-emerald-50 hover:bg-emerald-500 rounded-lg transition-colors border border-emerald-200 flex items-center space-x-1"
+                              title="この発注分を完了（リストから削除）する"
                             >
-                              <X className="w-4 h-4" />
+                              <Check className="w-4 h-4" />
                             </button>
                           </div>
                         ))}
                       </div>
+                      <p className="text-[10px] text-slate-400 font-bold mt-3 text-center">
+                        商品が届いたら、日々の操作で「+入庫」をした後に、<br/>右側の✅ボタンを押してリストから消去してください。
+                      </p>
                     </div>
                   );
                 }
