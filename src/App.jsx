@@ -148,6 +148,8 @@ const EditableCell = memo(({ value, type = "text", onUpdate, format }) => {
 export default function App() {
   const [user, setUser] = useState(null);
   const [inventory, setInventory] = useState({ products: [], materials: [], rawMaterials: [] });
+  const [historyLogs, setHistoryLogs] = useState([]); // ★ 履歴保存用のステート
+  
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -289,7 +291,7 @@ export default function App() {
     setInventory({ products: [], materials: [], rawMaterials: [] });
   };
 
-  // Data Listeners
+  // Data & History Listeners
   useEffect(() => {
     if (!user || !isEnvConfigured) return;
     const colNames = ['products', 'materials', 'rawMaterials'];
@@ -305,8 +307,37 @@ export default function App() {
         }
       });
     });
-    return () => unsubs.forEach(u => u());
+
+    // ★ 履歴データのリスナーを追加
+    const unsubHistory = onSnapshot(query(getBasePath('history')), (snapshot) => {
+      const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setHistoryLogs(logs);
+    }, (err) => console.error("履歴取得エラー:", err));
+
+    return () => {
+      unsubs.forEach(u => u());
+      unsubHistory();
+    };
   }, [user]);
+
+  // ★ 過去30日間の出庫履歴から「月間平均出荷数」を自動算出
+  const autoMonthlyPaces = useMemo(() => {
+    const paces = {};
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    
+    // 商品の「出庫（sub）」履歴のみを抽出
+    const recentSubs = historyLogs.filter(log => 
+      log.type === 'product' && log.action === 'sub' && log.timestamp >= thirtyDaysAgo
+    );
+    
+    // アイテムごとに30日間の合計出庫数を計算
+    recentSubs.forEach(log => {
+      if (!paces[log.itemId]) paces[log.itemId] = 0;
+      paces[log.itemId] += log.amount;
+    });
+    
+    return paces;
+  }, [historyLogs]);
 
   const updateItem = async (t, id, updates) => {
     if (!user || !isEnvConfigured) return;
@@ -330,7 +361,7 @@ export default function App() {
       monthlyPace: type === 'product' ? Number(monthlyPace || 0) : 0,
       company: (type === 'product' ? '-' : company),
       createdAt: Date.now(), order: Date.now(),
-      orders: [] // 新しい配列ベースの発注履歴
+      orders: [] 
     };
     try {
       await addDoc(getBasePath(type + 's'), newItem);
@@ -339,7 +370,27 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // 出入庫の実行（実数をそのまま反映・自動消化は廃止）
+  // ★ 履歴をデータベースに保存する関数
+  const addHistoryLog = async (item, type, action, amount, newQuantity) => {
+    if (!user || !isEnvConfigured) return;
+    try {
+      const logItem = {
+        itemId: item.id,
+        itemName: item.name,
+        type: type,          // 'product', 'material', 'rawMaterial'
+        action: action,      // 'add' (入庫), 'sub' (出庫)
+        amount: Number(amount),
+        newQuantity: Number(newQuantity),
+        timestamp: Date.now(),
+        dateString: new Date().toLocaleDateString()
+      };
+      await addDoc(getBasePath('history'), logItem);
+    } catch (error) {
+      console.error("履歴保存エラー:", error);
+    }
+  };
+
+  // 出入庫の実行
   const executeAdjustment = async (e) => {
     e.preventDefault();
     if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured) return;
@@ -352,10 +403,15 @@ export default function App() {
 
     try {
       const updates = { prevQuantity: adjustModal.item.quantity, quantity: newQuantity };
-
+      
+      // 1. 在庫の更新
       await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), updates);
+      
+      // 2. ★ 裏側で操作履歴（トランザクション）を記録
+      await addHistoryLog(adjustModal.item, adjustModal.type, adjustModal.action, amount, newQuantity);
+
       setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' });
-      showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了しました`);
+      showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了し、履歴に記録されました`);
     } catch (err) { setErrorMessage(`処理エラー: ${err.message}`); }
   };
 
@@ -370,7 +426,6 @@ export default function App() {
         currentOrders = [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }];
       }
 
-      // 新しい発注を追加して、日付の古い順に並び替え
       const newOrder = { id: Date.now().toString(), amount: Number(orderModal.amount), date: orderModal.date };
       const updatedOrders = [...currentOrders, newOrder].sort((a, b) => new Date(a.date) - new Date(b.date));
 
@@ -386,7 +441,7 @@ export default function App() {
     } catch (err) { setErrorMessage(`記録エラー: ${err.message}`); }
   };
 
-  // ★ 特定の発注記録をリストから削除（完了扱い）
+  // 特定の発注記録をリストから削除（完了扱い）
   const removeSpecificOrder = async (orderIdToRemove) => {
     if (!user || !orderModal.item || !isEnvConfigured) return;
     
@@ -418,13 +473,16 @@ export default function App() {
     setInitializing(true);
     try {
       const batch = writeBatch(db);
-      for (const colName of ['products', 'materials', 'rawMaterials']) {
+      // historyコレクションも初期化対象に含める
+      for (const colName of ['products', 'materials', 'rawMaterials', 'history']) {
         const colRef = getBasePath(colName);
         const snapshot = await getDocs(query(colRef));
         snapshot.docs.forEach(doc => batch.delete(doc.ref));
-        INITIAL_DATA[colName].forEach((item, index) => {
-          batch.set(doc(colRef), { ...item, order: index, createdAt: Date.now() });
-        });
+        if (INITIAL_DATA[colName]) {
+          INITIAL_DATA[colName].forEach((item, index) => {
+            batch.set(doc(colRef), { ...item, order: index, createdAt: Date.now() });
+          });
+        }
       }
       await batch.commit();
       setIsSyncModalOpen(false);
@@ -744,16 +802,21 @@ export default function App() {
                   <tbody className="divide-y divide-slate-100">
                     {section.list.length === 0 ? (<tr><td colSpan="10" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
                       section.list.map((item, idx) => {
-                        const monthlyPace = item.monthlyPace || 0;
-                        const orderPoint = monthlyPace * 6;
-                        const targetInventory = monthlyPace * 9;
+                        // ★ 手動設定値と自動計算値の統合
+                        const manualPace = item.monthlyPace || 0;
+                        const autoPace = autoMonthlyPaces[item.id] || 0;
+                        // 過去30日に実績があればそれを優先、なければ手動入力値
+                        const effectiveMonthlyPace = autoPace > 0 ? autoPace : manualPace;
+                        
+                        const orderPoint = effectiveMonthlyPace * 6;
+                        const targetInventory = effectiveMonthlyPace * 9;
                         
                         // 複数発注データの取得
                         const currentOrders = item.orders || (item.isOrdered ? [{ id: 'legacy', amount: item.orderedQuantity, date: item.arrivalDate }] : []);
                         const totalOrderedQty = currentOrders.reduce((sum, o) => sum + Number(o.amount), 0);
                         
                         const effectiveQuantity = item.quantity + totalOrderedQty;
-                        const isUnderStock = monthlyPace > 0 && effectiveQuantity < orderPoint;
+                        const isUnderStock = effectiveMonthlyPace > 0 && effectiveQuantity < orderPoint;
                         const recommendQty = Math.max(0, targetInventory - effectiveQuantity);
 
                         // 枯渇リスクのシミュレーション (時間軸の進行)
@@ -762,14 +825,14 @@ export default function App() {
                         let simulatedInventory = item.quantity;
                         const todayTime = new Date().setHours(0, 0, 0, 0);
 
-                        if (monthlyPace > 0 && currentOrders.length > 0) {
+                        if (effectiveMonthlyPace > 0 && currentOrders.length > 0) {
                           for (let i = 0; i < currentOrders.length; i++) {
                             const o = currentOrders[i];
                             const arrivalTime = new Date(o.date).getTime();
                             const diffDays = Math.ceil((arrivalTime - todayTime) / (1000 * 60 * 60 * 24));
                             
                             if (diffDays > 0) {
-                              const expectedConsumption = (diffDays / 30) * monthlyPace;
+                              const expectedConsumption = (diffDays / 30) * effectiveMonthlyPace;
                               if (simulatedInventory < expectedConsumption) {
                                 stockoutRisk = true;
                                 shortageAmount = Math.ceil(expectedConsumption - simulatedInventory);
@@ -799,9 +862,24 @@ export default function App() {
                             
                             {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
                             
+                            {/* ★ 月間平均の表示（自動計算との連携） */}
                             {section.type === 'product' && (
-                              <td className="px-4 py-4 text-center text-slate-500 font-bold">
-                                <EditableCell value={monthlyPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
+                              <td className="px-4 py-4 text-center text-slate-500 font-bold whitespace-nowrap">
+                                {autoPace > 0 ? (
+                                  <div className="flex flex-col items-center justify-center">
+                                    <span className="text-indigo-600 font-black flex items-center" title="過去30日の出庫実績から自動算出">
+                                      {autoPace} <span className="text-[8px] ml-1.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded shadow-sm">自動</span>
+                                    </span>
+                                    <div className="text-[8px] text-slate-400 mt-1 flex items-center" title="手動設定値">
+                                       手動: <EditableCell value={manualPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center">
+                                    <EditableCell value={manualPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
+                                    <span className="text-[8px] text-slate-400 mt-1 opacity-50">手動</span>
+                                  </div>
+                                )}
                               </td>
                             )}
 
@@ -860,8 +938,18 @@ export default function App() {
                               </td>
                             )}
 
+                            {/* ★ 現在庫の直接編集時にも履歴を記録 */}
                             <td className="px-4 py-4 text-center">
-                              <QuantityInput value={item.quantity} onUpdate={(q) => updateItem(section.type, item.id, { prevQuantity: item.quantity, quantity: q })} />
+                              <QuantityInput 
+                                value={item.quantity} 
+                                onUpdate={async (q) => {
+                                  const diff = q - item.quantity;
+                                  if (diff === 0) return;
+                                  await updateItem(section.type, item.id, { prevQuantity: item.quantity, quantity: q });
+                                  const action = diff > 0 ? 'add' : 'sub';
+                                  await addHistoryLog(item, section.type, action, Math.abs(diff), q);
+                                }} 
+                              />
                             </td>
                             
                             <td className="px-4 py-4 text-center">
@@ -984,7 +1072,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ★ 発注記録モーダル */}
+      {/* 発注記録モーダル */}
       {orderModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-blue-400">
@@ -1039,11 +1127,16 @@ export default function App() {
                   <Plus className="w-4 h-4 mr-1" /> 新しい発注を記録する
                 </h4>
 
-                {/* ★ 先回りした在庫枯渇予測日（デッドライン：現在庫のみで計算） */}
+                {/* 先回りした在庫枯渇予測日（デッドライン：現在庫のみで計算） */}
                 {(() => {
-                  if (orderModal.item && orderModal.item.monthlyPace > 0) {
+                  // ★ ここでも自動計算の月間ペースを反映してデッドラインを算出
+                  const manualPace = orderModal.item?.monthlyPace || 0;
+                  const autoPace = autoMonthlyPaces[orderModal.item?.id] || 0;
+                  const effectivePace = autoPace > 0 ? autoPace : manualPace;
+
+                  if (orderModal.item && effectivePace > 0) {
                     const currentQty = orderModal.item.quantity;
-                    const pacePerDay = orderModal.item.monthlyPace / 30;
+                    const pacePerDay = effectivePace / 30;
                     
                     const today = new Date();
                     today.setHours(0,0,0,0);
@@ -1056,7 +1149,7 @@ export default function App() {
                     const m = stockoutDate.getMonth() + 1;
                     const d = stockoutDate.getDate();
                     
-                    const isDanger = diffTotalDays <= 30; // 30日以内に尽きる場合は赤色で警告
+                    const isDanger = diffTotalDays <= 30;
                     
                     return (
                       <div className={`p-3 rounded-xl border ${isDanger ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}`}>
@@ -1074,13 +1167,17 @@ export default function App() {
                 
                 {/* リアルタイム枯渇予測（入力した日付がデッドラインを超えた場合） */}
                 {(() => {
-                  if (orderModal.item && orderModal.date && orderModal.item.monthlyPace > 0) {
+                  const manualPace = orderModal.item?.monthlyPace || 0;
+                  const autoPace = autoMonthlyPaces[orderModal.item?.id] || 0;
+                  const effectivePace = autoPace > 0 ? autoPace : manualPace;
+
+                  if (orderModal.item && orderModal.date && effectivePace > 0) {
                     const arrival = new Date(orderModal.date);
                     const today = new Date();
                     today.setHours(0,0,0,0);
                     const diffDays = Math.ceil((arrival.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                     if (diffDays > 0) {
-                      const expectedConsumption = (diffDays / 30) * orderModal.item.monthlyPace;
+                      const expectedConsumption = (diffDays / 30) * effectivePace;
                       
                       const curOrders = orderModal.item?.orders || (orderModal.item?.isOrdered ? [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }] : []);
                       const preArrivals = curOrders.filter(o => new Date(o.date) < arrival).reduce((sum, o) => sum + Number(o.amount), 0);
