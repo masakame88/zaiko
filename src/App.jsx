@@ -150,6 +150,10 @@ export default function App() {
   const [inventory, setInventory] = useState({ products: [], materials: [], rawMaterials: [] });
   const [historyLogs, setHistoryLogs] = useState([]); // 履歴保存用のステート
   
+  // ★ 過去時点での在庫を確認するためのステート（タイムトラベル用）
+  const [pastDate, setPastDate] = useState('');
+  const isPastMode = !!pastDate;
+  
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -163,7 +167,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false); 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false); // ★ 履歴モーダル用
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
 
   // 出庫・入庫モーダル
@@ -309,7 +313,7 @@ export default function App() {
       });
     });
 
-    // 履歴データのリスナーを追加
+    // 履歴データのリスナー
     const unsubHistory = onSnapshot(query(getBasePath('history')), (snapshot) => {
       const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setHistoryLogs(logs);
@@ -321,44 +325,60 @@ export default function App() {
     };
   }, [user]);
 
-  // ★ 履歴を新しい順（降順）にソート
   const sortedHistoryLogs = useMemo(() => {
     return [...historyLogs].sort((a, b) => b.timestamp - a.timestamp);
   }, [historyLogs]);
 
-  // ★ タイムスタンプのフォーマット関数
   const formatDateTime = (timestamp) => {
     const d = new Date(timestamp);
     return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   };
 
-  // 過去30日間の出庫履歴から「月間平均出荷数」を自動算出
   const autoMonthlyPaces = useMemo(() => {
     const paces = {};
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    
-    // 商品の「出庫（sub）」履歴のみを抽出
-    const recentSubs = historyLogs.filter(log => 
-      log.type === 'product' && log.action === 'sub' && log.timestamp >= thirtyDaysAgo
-    );
-    
-    // アイテムごとに30日間の合計出庫数を計算
+    const recentSubs = historyLogs.filter(log => log.type === 'product' && log.action === 'sub' && log.timestamp >= thirtyDaysAgo);
     recentSubs.forEach(log => {
       if (!paces[log.itemId]) paces[log.itemId] = 0;
       paces[log.itemId] += log.amount;
     });
-    
     return paces;
   }, [historyLogs]);
 
+  // ★ タイムトラベル機能：指定された日付の履歴から逆算して当時の在庫を復元する
+  const displayInventory = useMemo(() => {
+    if (!isPastMode) return inventory;
+    
+    const [y, m, d] = pastDate.split('-').map(Number);
+    // 指定した日の 23:59:59 ギリギリの時間をターゲットとする
+    const targetTime = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+
+    const calculatePastQty = (item) => {
+      let currentQty = item.quantity;
+      // 指定日より未来に行われた操作履歴を取得して「逆算」する
+      const futureLogs = historyLogs.filter(log => log.itemId === item.id && log.timestamp > targetTime);
+      futureLogs.forEach(log => {
+        if (log.action === 'add') currentQty -= log.amount; // 未来に入庫した分は、過去ではまだ無いので引く
+        if (log.action === 'sub') currentQty += log.amount; // 未来に出庫した分は、過去ではまだ有ったので足す
+      });
+      return Math.max(0, currentQty);
+    };
+
+    return {
+      products: inventory.products.map(i => ({ ...i, quantity: calculatePastQty(i) })),
+      materials: inventory.materials.map(i => ({ ...i, quantity: calculatePastQty(i) })),
+      rawMaterials: inventory.rawMaterials.map(i => ({ ...i, quantity: calculatePastQty(i) }))
+    };
+  }, [inventory, historyLogs, pastDate, isPastMode]);
+
   const updateItem = async (t, id, updates) => {
-    if (!user || !isEnvConfigured) return;
+    if (!user || !isEnvConfigured || isPastMode) return; // 過去モード中は更新禁止
     try { await updateDoc(getDocPath(t + 's', id), updates); } 
     catch (err) { setErrorMessage(`更新エラー: ${err.message}`); }
   };
 
   const removeItem = async (t, id) => {
-    if (!user || !isEnvConfigured) return;
+    if (!user || !isEnvConfigured || isPastMode) return;
     try {
       await deleteDoc(getDocPath(t + 's', id));
       showToast("データを削除しました");
@@ -367,7 +387,7 @@ export default function App() {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!user || !name || !price || !quantity || !isEnvConfigured) return;
+    if (!user || !name || !price || !quantity || !isEnvConfigured || isPastMode) return;
     const newItem = {
       name, price: Number(price), prevQuantity: 0, quantity: Number(quantity),
       monthlyPace: type === 'product' ? Number(monthlyPace || 0) : 0,
@@ -382,44 +402,30 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // 履歴をデータベースに保存する関数
   const addHistoryLog = async (item, type, action, amount, newQuantity) => {
     if (!user || !isEnvConfigured) return;
     try {
       const logItem = {
-        itemId: item.id,
-        itemName: item.name,
-        type: type,          // 'product', 'material', 'rawMaterial'
-        action: action,      // 'add' (入庫), 'sub' (出庫)
-        amount: Number(amount),
-        newQuantity: Number(newQuantity),
-        timestamp: Date.now(),
-        dateString: new Date().toLocaleDateString()
+        itemId: item.id, itemName: item.name, type: type, action: action,
+        amount: Number(amount), newQuantity: Number(newQuantity),
+        timestamp: Date.now(), dateString: new Date().toLocaleDateString()
       };
       await addDoc(getBasePath('history'), logItem);
-    } catch (error) {
-      console.error("履歴保存エラー:", error);
-    }
+    } catch (error) { console.error("履歴保存エラー:", error); }
   };
 
-  // 出入庫の実行
   const executeAdjustment = async (e) => {
     e.preventDefault();
-    if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured) return;
+    if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured || isPastMode) return;
     
     const amount = Number(adjustModal.amount);
     let newQuantity = adjustModal.item.quantity;
-    
     if (adjustModal.action === 'sub') { newQuantity = Math.max(0, newQuantity - amount); } 
     else if (adjustModal.action === 'add') { newQuantity = newQuantity + amount; }
 
     try {
       const updates = { prevQuantity: adjustModal.item.quantity, quantity: newQuantity };
-      
-      // 1. 在庫の更新
       await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), updates);
-      
-      // 2. 裏側で操作履歴（トランザクション）を記録
       await addHistoryLog(adjustModal.item, adjustModal.type, adjustModal.action, amount, newQuantity);
 
       setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' });
@@ -427,23 +433,20 @@ export default function App() {
     } catch (err) { setErrorMessage(`処理エラー: ${err.message}`); }
   };
 
-  // 複数回の発注記録を保存
   const executeOrderRecord = async (e) => {
     e.preventDefault();
-    if (!user || !orderModal.item || !orderModal.amount || !orderModal.date || !isEnvConfigured) return;
+    if (!user || !orderModal.item || !orderModal.amount || !orderModal.date || !isEnvConfigured || isPastMode) return;
     
     try {
       let currentOrders = orderModal.item.orders || [];
       if (currentOrders.length === 0 && orderModal.item.isOrdered) {
         currentOrders = [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }];
       }
-
       const newOrder = { id: Date.now().toString(), amount: Number(orderModal.amount), date: orderModal.date };
       const updatedOrders = [...currentOrders, newOrder].sort((a, b) => new Date(a.date) - new Date(b.date));
 
       await updateDoc(getDocPath('products', orderModal.item.id), {
-        orders: updatedOrders,
-        isOrdered: updatedOrders.length > 0,
+        orders: updatedOrders, isOrdered: updatedOrders.length > 0,
         orderedQuantity: updatedOrders.reduce((sum, o) => sum + o.amount, 0),
         arrivalDate: updatedOrders.length > 0 ? updatedOrders[0].date : null
       });
@@ -453,39 +456,33 @@ export default function App() {
     } catch (err) { setErrorMessage(`記録エラー: ${err.message}`); }
   };
 
-  // 特定の発注記録をリストから削除（完了扱い）
   const removeSpecificOrder = async (orderIdToRemove) => {
-    if (!user || !orderModal.item || !isEnvConfigured) return;
-    
+    if (!user || !orderModal.item || !isEnvConfigured || isPastMode) return;
     try {
       let currentOrders = orderModal.item.orders || [];
       if (currentOrders.length === 0 && orderModal.item.isOrdered) {
         currentOrders = [{ id: 'legacy', amount: orderModal.item.orderedQuantity, date: orderModal.item.arrivalDate }];
       }
-
       const updatedOrders = currentOrders.filter(o => o.id !== orderIdToRemove);
 
       await updateDoc(getDocPath('products', orderModal.item.id), {
-        orders: updatedOrders,
-        isOrdered: updatedOrders.length > 0,
+        orders: updatedOrders, isOrdered: updatedOrders.length > 0,
         orderedQuantity: updatedOrders.reduce((sum, o) => sum + o.amount, 0),
         arrivalDate: updatedOrders.length > 0 ? updatedOrders[0].date : null
       });
       
       setOrderModal(prev => ({
-        ...prev,
-        item: { ...prev.item, orders: updatedOrders, isOrdered: updatedOrders.length > 0 }
+        ...prev, item: { ...prev.item, orders: updatedOrders, isOrdered: updatedOrders.length > 0 }
       }));
       showToast("発注分を完了としてリストから削除しました");
     } catch (err) { setErrorMessage(`エラー: ${err.message}`); }
   };
 
   const restoreInitialData = async () => {
-    if (!user || initializing || !isEnvConfigured) return;
+    if (!user || initializing || !isEnvConfigured || isPastMode) return;
     setInitializing(true);
     try {
       const batch = writeBatch(db);
-      // historyコレクションも初期化対象に含める
       for (const colName of ['products', 'materials', 'rawMaterials', 'history']) {
         const colRef = getBasePath(colName);
         const snapshot = await getDocs(query(colRef));
@@ -504,7 +501,7 @@ export default function App() {
   };
 
   const processImportText = async (textToParse) => {
-    if (!user || initializing || !textToParse.trim() || !isEnvConfigured) return;
+    if (!user || initializing || !textToParse.trim() || !isEnvConfigured || isPastMode) return;
     setInitializing(true);
     try {
       const lines = textToParse.split('\n');
@@ -533,8 +530,7 @@ export default function App() {
             price: Number((row[3] || '0').replace(/[,¥"']/g, '')),
             prevQuantity: Number((row[4] || '0').replace(/[,¥"']/g, '')), 
             quantity: Number((row[5] || '0').replace(/[,¥"']/g, '')),
-            monthlyPace: 0,
-            orders: []
+            monthlyPace: 0, orders: []
           });
           importCount++;
         }
@@ -559,7 +555,7 @@ export default function App() {
   };
 
   const handleDrop = async (e, dropIdx, listType) => {
-    if (draggedIdx === null || dragType !== listType || draggedIdx === dropIdx || !isEnvConfigured) {
+    if (draggedIdx === null || dragType !== listType || draggedIdx === dropIdx || !isEnvConfigured || isPastMode) {
       setDraggedIdx(null); setDragType(null); setDraggableRowId(null);
       return;
     }
@@ -579,24 +575,30 @@ export default function App() {
     return { label: `${date.getFullYear()}年${date.getMonth() + 1}月分` };
   }, [targetMonth]);
 
+  // ★ 計算を displayInventory（表示用データ）に切り替え
   const totals = useMemo(() => {
     const calc = (list) => list.reduce((sum, i) => sum + (i.price * i.quantity), 0);
     const calcByCo = (list, co) => list.filter(i => i.company === co).reduce((sum, i) => sum + (i.price * i.quantity), 0);
-    const p = inventory.products, m = inventory.materials, r = inventory.rawMaterials;
+    const p = displayInventory.products, m = displayInventory.materials, r = displayInventory.rawMaterials;
     return {
       products: calc(p), grandTotal: calc(p) + calc(m) + calc(r),
       materials: calc(m), materialsOur: calcByCo(m, '当社'), materialsUkishima: calcByCo(m, 'ウキシマメディカル'), materialsNakanihon: calcByCo(m, '中日本カプセル'),
       rawMaterials: calc(r), rawMaterialsOur: calcByCo(r, '当社'), rawMaterialsUkishima: calcByCo(r, 'ウキシマメディカル'), rawMaterialsNakanihon: calcByCo(r, '中日本カプセル')
     };
-  }, [inventory]);
+  }, [displayInventory]);
 
   const formatCurrency = (v) => new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY' }).format(v);
 
+  // CSV出力も displayInventory の情報を使用する
   const exportToCSV = () => {
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
     const escapeCSV = (str) => `"${String(str).replace(/"/g, '""')}"`;
     const formatNum = (num) => String(num.toLocaleString());
-    let csvContent = `${escapeCSV(displayMonthInfo.label + " 在庫報告書")}\n出力日,${escapeCSV(new Date().toLocaleDateString())}\n\n`;
+    
+    // 過去モードの場合は、ファイル名やタイトルをその日付にする
+    const titleLabel = isPastMode ? `${pastDate} 時点` : displayMonthInfo.label;
+    
+    let csvContent = `${escapeCSV(titleLabel + " 在庫報告書")}\n出力日,${escapeCSV(new Date().toLocaleDateString())}\n\n`;
     csvContent += `【サマリー】\n総合計金額,${escapeCSV(formatNum(totals.grandTotal))}\n`;
     csvContent += `商品 合計,${escapeCSV(formatNum(totals.products))}\n`;
     csvContent += `資材 合計,${escapeCSV(formatNum(totals.materials))}\n├ 当社,${escapeCSV(formatNum(totals.materialsOur))}\n├ ウキシマメディカル,${escapeCSV(formatNum(totals.materialsUkishima))}\n└ 中日本カプセル,${escapeCSV(formatNum(totals.materialsNakanihon))}\n`;
@@ -604,7 +606,7 @@ export default function App() {
     csvContent += "種類,品名,取扱会社,単価,前月数量,今月数量,合計金額,月間平均,発注状況\n";
     const addRows = (list, label) => list.forEach(i => {
       let orderStatus = "-";
-      if (label === '商品') {
+      if (label === '商品' && !isPastMode) {
         const curOrders = i.orders || (i.isOrdered ? [{ amount: i.orderedQuantity, date: i.arrivalDate }] : []);
         if (curOrders.length > 0) {
           orderStatus = curOrders.map(o => `${o.amount}個(${o.date})`).join(' / ');
@@ -612,11 +614,11 @@ export default function App() {
       }
       csvContent += `${escapeCSV(label)},${escapeCSV(i.name)},${escapeCSV(i.company || '-')},${escapeCSV(formatNum(i.price))},${escapeCSV(formatNum(i.prevQuantity))},${escapeCSV(formatNum(i.quantity))},${escapeCSV(formatNum(i.price * i.quantity))},${escapeCSV(i.monthlyPace || '-')},${escapeCSV(orderStatus)}\n`;
     });
-    addRows(inventory.products, "商品"); addRows(inventory.materials, "資材"); addRows(inventory.rawMaterials, "原材料");
+    addRows(displayInventory.products, "商品"); addRows(displayInventory.materials, "資材"); addRows(displayInventory.rawMaterials, "原材料");
     const blob = new Blob([bom, csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.setAttribute("href", URL.createObjectURL(blob));
-    link.setAttribute("download", `${displayMonthInfo.label}_在庫表.csv`);
+    link.setAttribute("download", `${titleLabel}_在庫表.csv`);
     link.click();
   };
 
@@ -690,7 +692,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 font-sans relative select-none">
+    <div className={`min-h-screen ${isPastMode ? 'bg-indigo-50/50' : 'bg-slate-50'} text-slate-800 p-4 md:p-8 font-sans relative select-none transition-colors`}>
       
       <div className={`fixed bottom-20 right-6 z-50 transition-all duration-500 transform ${toastMessage ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
         <div className="bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-2xl flex items-center space-x-3 font-bold border border-emerald-500/50 backdrop-blur-md">
@@ -699,7 +701,7 @@ export default function App() {
         </div>
       </div>
 
-      {isDragOverDocument && (
+      {isDragOverDocument && !isPastMode && (
         <div className="fixed inset-0 bg-indigo-900/90 backdrop-blur-md z-[200] flex flex-col items-center justify-center border-8 border-indigo-500 border-dashed"
           onDragOver={(e) => e.preventDefault()} onDragLeave={() => setIsDragOverDocument(false)}
           onDrop={(e) => {
@@ -718,7 +720,26 @@ export default function App() {
 
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {orderAlertInfo.isAlertDay && (
+        {/* ★ 過去モード中のアラートバナー */}
+        {isPastMode && (
+          <div className="bg-indigo-600 border border-indigo-400 p-4 md:p-6 rounded-3xl flex flex-col md:flex-row items-center justify-between shadow-xl mb-6 shadow-indigo-200 animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-center mb-4 md:mb-0">
+              <div className="bg-white/20 p-3 rounded-2xl mr-4"><History className="w-8 h-8 text-white" /></div>
+              <div>
+                <h3 className="font-black text-white text-xl tracking-wider">タイムトラベルモード</h3>
+                <p className="text-sm font-bold text-indigo-100 mt-1">
+                  現在の在庫から日々の操作履歴を逆算し、<span className="bg-white text-indigo-700 px-2 py-0.5 rounded-md shadow-sm ml-1">{pastDate} 23:59 時点</span> の在庫を復元表示しています。
+                </p>
+                <p className="text-[10px] text-indigo-200 mt-1">※このモード中は、データ保護のため新規登録や出入庫などの操作はできません。</p>
+              </div>
+            </div>
+            <button onClick={() => setPastDate('')} className="w-full md:w-auto bg-white text-indigo-600 px-6 py-4 rounded-2xl font-black shadow-md hover:bg-indigo-50 transition-all active:scale-95 flex items-center justify-center whitespace-nowrap">
+              <RotateCcw className="w-5 h-5 mr-2" /> 現在に戻る
+            </button>
+          </div>
+        )}
+
+        {!isPastMode && orderAlertInfo.isAlertDay && (
           <div className="bg-amber-100 border-l-4 border-amber-500 p-4 rounded-2xl flex items-center justify-between shadow-sm animate-pulse">
             <div className="flex items-center">
               <AlertTriangle className="w-6 h-6 text-amber-500 mr-3" />
@@ -732,28 +753,54 @@ export default function App() {
 
         <header className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-200 gap-4">
           <div className="flex items-center space-x-4">
-            <div className="bg-indigo-600 p-2.5 rounded-xl shadow-lg ring-4 ring-indigo-50"><Briefcase className="w-7 h-7 text-white" /></div>
+            <div className={`p-2.5 rounded-xl shadow-lg ring-4 ${isPastMode ? 'bg-slate-400 ring-slate-100' : 'bg-indigo-600 ring-indigo-50'}`}>
+              <Briefcase className="w-7 h-7 text-white" />
+            </div>
             <div>
-              <h1 className="text-2xl font-black">{displayMonthInfo.label} 在庫表</h1>
+              <h1 className="text-2xl font-black">{isPastMode ? `${pastDate} 時点` : displayMonthInfo.label} 在庫表</h1>
               <div className={`flex items-center text-[10px] font-black uppercase tracking-widest mt-1 px-3 py-1 rounded-full inline-flex border ${isCanvasEnv ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-100 text-emerald-700 border-emerald-300'}`}>
                 <Cloud className="w-3 h-3 mr-1" />
                 <span>{isCanvasEnv ? "Canvasプレビュー環境 (一時保存)" : "Vercel本番環境 (永続保存)"}</span>
               </div>
             </div>
           </div>
+          
           <div className="flex flex-wrap items-center gap-2">
-            {/* ★ 履歴ボタンを追加 */}
-            <button onClick={() => setIsHistoryModalOpen(true)} className="flex items-center space-x-1 bg-indigo-50 text-indigo-600 px-3 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-100 transition-all text-sm font-black shadow-sm active:scale-95">
-              <History className="w-4 h-4" /><span>履歴</span>
+            {/* ★ 過去の時点を指定するUI */}
+            <div className={`flex items-center space-x-2 px-3 py-2 rounded-xl border shadow-sm relative group transition-all ${isPastMode ? 'bg-indigo-100 border-indigo-300' : 'bg-white border-slate-300 hover:border-indigo-300'}`}>
+              <History className={`w-4 h-4 ${isPastMode ? 'text-indigo-600' : 'text-slate-400'}`} />
+              <label className={`text-xs font-black whitespace-nowrap cursor-pointer ${isPastMode ? 'text-indigo-800' : 'text-slate-500'}`}>
+                {isPastMode ? '復元日:' : '過去の時点へ:'}
+              </label>
+              <input 
+                type="date" 
+                value={pastDate} 
+                onChange={(e) => setPastDate(e.target.value)} 
+                max={new Date().toISOString().split('T')[0]} // 未来は指定できないようにする
+                className="outline-none bg-transparent font-black text-indigo-600 cursor-pointer text-sm" 
+                title="指定した日の23:59時点の在庫を復元します"
+              />
+            </div>
+
+            <button onClick={() => setIsHistoryModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95">
+              <History className="w-4 h-4" /><span>操作ログ</span>
             </button>
             <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Upload className="w-4 h-4" /><span>CSV出力</span></button>
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Download className="w-4 h-4" /><span>CSV読込</span></button>
-            <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 transition-all text-sm font-bold shadow-sm active:scale-95"><RotateCcw className="w-4 h-4" /><span>初期化</span></button>
-            <button onClick={() => setIsModalOpen(true)} className="flex items-center space-x-1 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all text-sm font-bold shadow-md active:scale-95"><Plus className="w-4 h-4" /><span>新規追加</span></button>
-            <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-300 shadow-sm">
-              <Calendar className="w-5 h-5 text-slate-400" />
-              <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="outline-none bg-transparent font-black text-indigo-600 cursor-pointer" />
-            </div>
+            
+            {!isPastMode && (
+              <>
+                <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Download className="w-4 h-4" /><span>CSV読込</span></button>
+                <button onClick={() => setIsModalOpen(true)} className="flex items-center space-x-1 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all text-sm font-bold shadow-md active:scale-95"><Plus className="w-4 h-4" /><span>新規追加</span></button>
+              </>
+            )}
+            
+            {!isPastMode && (
+              <div className="flex items-center space-x-2 bg-white px-4 py-2 rounded-xl border border-slate-300 shadow-sm ml-1">
+                <Calendar className="w-5 h-5 text-slate-400" />
+                <input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="outline-none bg-transparent font-black text-indigo-600 cursor-pointer" title="表示用の年月（集計には影響しません）" />
+              </div>
+            )}
+
             {!isCanvasEnv && (
               <button onClick={handleLogout} className="flex items-center space-x-1 bg-white text-slate-500 ml-2 px-3 py-2 rounded-xl border border-slate-300 hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-all text-sm font-bold shadow-sm active:scale-95">
                 <LogOut className="w-4 h-4" /><span>ログアウト</span>
@@ -763,14 +810,14 @@ export default function App() {
         </header>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 rounded-2xl p-6 text-white shadow-xl shadow-indigo-200 flex flex-col justify-between">
-            <div className="flex items-center space-x-2 text-indigo-100 mb-2"><Wallet className="w-5 h-5" /><h2 className="text-lg font-bold whitespace-nowrap">総合計金額</h2></div>
+          <div className={`rounded-2xl p-6 text-white shadow-xl flex flex-col justify-between ${isPastMode ? 'bg-gradient-to-br from-slate-500 to-slate-700 shadow-slate-300' : 'bg-gradient-to-br from-indigo-600 to-indigo-800 shadow-indigo-200'}`}>
+            <div className={`flex items-center space-x-2 mb-2 ${isPastMode ? 'text-slate-200' : 'text-indigo-100'}`}><Wallet className="w-5 h-5" /><h2 className="text-lg font-bold whitespace-nowrap">総合計金額</h2></div>
             <p className="text-4xl font-black tracking-tight">{formatCurrency(totals.grandTotal)}</p>
           </div>
           {[
-            { label: '商品', val: totals.products, icon: Package, col: 'emerald', sub: [] },
-            { label: '資材', val: totals.materials, icon: Layers, col: 'amber', sub: [{ l: '自社', v: totals.materialsOur }, { l: 'ウキシマ', v: totals.materialsUkishima }, { l: '中日本', v: totals.materialsNakanihon }] },
-            { label: '原材料', val: totals.rawMaterials, icon: Shapes, col: 'blue', sub: [{ l: '自社', v: totals.rawMaterialsOur }, { l: 'ウキシマ', v: totals.rawMaterialsUkishima }, { l: '中日本', v: totals.rawMaterialsNakanihon }] }
+            { label: '商品', val: totals.products, icon: Package, col: isPastMode ? 'slate' : 'emerald', sub: [] },
+            { label: '資材', val: totals.materials, icon: Layers, col: isPastMode ? 'slate' : 'amber', sub: [{ l: '自社', v: totals.materialsOur }, { l: 'ウキシマ', v: totals.materialsUkishima }, { l: '中日本', v: totals.materialsNakanihon }] },
+            { label: '原材料', val: totals.rawMaterials, icon: Shapes, col: isPastMode ? 'slate' : 'blue', sub: [{ l: '自社', v: totals.rawMaterialsOur }, { l: 'ウキシマ', v: totals.rawMaterialsUkishima }, { l: '中日本', v: totals.rawMaterialsNakanihon }] }
           ].map(s => (
             <div key={s.label} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-md transition-all flex flex-col justify-between">
               <div>
@@ -788,13 +835,13 @@ export default function App() {
 
         <div className="space-y-8 pb-32">
           {[
-            { title: '商品', list: inventory.products, type: 'product', color: 'emerald' },
-            { title: '資材', list: inventory.materials, type: 'material', color: 'amber' },
-            { title: '原材料', list: inventory.rawMaterials, type: 'rawMaterial', color: 'blue' }
+            { title: '商品', list: displayInventory.products, type: 'product', color: isPastMode ? 'slate' : 'emerald' },
+            { title: '資材', list: displayInventory.materials, type: 'material', color: isPastMode ? 'slate' : 'amber' },
+            { title: '原材料', list: displayInventory.rawMaterials, type: 'rawMaterial', color: isPastMode ? 'slate' : 'blue' }
           ].map(section => (
             <div key={section.title} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
               <div className={`bg-${section.color}-50/50 px-8 py-5 border-b border-${section.color}-100 flex items-center justify-between`}>
-                <h3 className={`font-black text-${section.color}-800 text-lg`}>{section.title}リスト</h3>
+                <h3 className={`font-black text-${section.color}-800 text-lg`}>{section.title}リスト {isPastMode && <span className="text-xs ml-2 bg-white px-2 py-1 rounded shadow-sm border border-slate-200 text-slate-500">閲覧専用</span>}</h3>
                 <div className={`text-${section.color}-800 font-black bg-white px-4 py-1.5 rounded-xl shadow-sm border border-${section.color}-100`}>
                   {formatCurrency(totals[section.type + 's'] || totals[section.type])}
                 </div>
@@ -818,16 +865,13 @@ export default function App() {
                   <tbody className="divide-y divide-slate-100">
                     {section.list.length === 0 ? (<tr><td colSpan="10" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
                       section.list.map((item, idx) => {
-                        // 手動設定値と自動計算値の統合
                         const manualPace = item.monthlyPace || 0;
                         const autoPace = autoMonthlyPaces[item.id] || 0;
-                        // 過去30日に実績があればそれを優先、なければ手動入力値
                         const effectiveMonthlyPace = autoPace > 0 ? autoPace : manualPace;
                         
                         const orderPoint = effectiveMonthlyPace * 6;
                         const targetInventory = effectiveMonthlyPace * 9;
                         
-                        // 複数発注データの取得
                         const currentOrders = item.orders || (item.isOrdered ? [{ id: 'legacy', amount: item.orderedQuantity, date: item.arrivalDate }] : []);
                         const totalOrderedQty = currentOrders.reduce((sum, o) => sum + Number(o.amount), 0);
                         
@@ -835,7 +879,6 @@ export default function App() {
                         const isUnderStock = effectiveMonthlyPace > 0 && effectiveQuantity < orderPoint;
                         const recommendQty = Math.max(0, targetInventory - effectiveQuantity);
 
-                        // 枯渇リスクのシミュレーション (時間軸の進行)
                         let stockoutRisk = false;
                         let shortageAmount = 0;
                         let simulatedInventory = item.quantity;
@@ -861,27 +904,34 @@ export default function App() {
 
                         return (
                           <tr key={item.id} 
-                            draggable={draggableRowId === item.id} 
+                            draggable={!isPastMode && draggableRowId === item.id} 
                             onDragStart={() => { setDraggedIdx(idx); setDragType(section.type); }} 
                             onDragEnd={() => { setDraggedIdx(null); setDragType(null); setDraggableRowId(null); }}
                             onDragOver={(e) => e.preventDefault()} 
                             onDrop={(e) => handleDrop(e, idx, section.type)}
                             className={`hover:bg-slate-50/80 transition-colors group ${draggedIdx === idx && dragType === section.type ? 'opacity-30' : ''}`}>
+                            
                             <td 
-                              className="px-4 py-4 text-slate-300 cursor-grab active:cursor-grabbing"
-                              onMouseEnter={() => setDraggableRowId(item.id)}
-                              onMouseLeave={() => setDraggableRowId(null)}
+                              className={`px-4 py-4 text-center ${isPastMode ? 'text-slate-200' : 'text-slate-300 cursor-grab active:cursor-grabbing'}`}
+                              onMouseEnter={() => !isPastMode && setDraggableRowId(item.id)}
+                              onMouseLeave={() => !isPastMode && setDraggableRowId(null)}
                             >
-                              <GripVertical className="w-5 h-5 mx-auto" />
+                              {isPastMode ? <span className="text-[10px] font-black">{idx + 1}</span> : <GripVertical className="w-5 h-5 mx-auto" />}
                             </td>
-                            <td className="px-4 py-4 font-black min-w-[180px]"><EditableCell value={item.name} onUpdate={(n) => updateItem(section.type, item.id, { name: n })} /></td>
+                            
+                            {/* ★ 過去モード時は編集不可 */}
+                            <td className="px-4 py-4 font-black min-w-[180px]">
+                              {isPastMode ? <span className="text-slate-600">{item.name}</span> : <EditableCell value={item.name} onUpdate={(n) => updateItem(section.type, item.id, { name: n })} />}
+                            </td>
                             
                             {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
                             
-                            {/* 月間平均の表示（自動計算との連携） */}
+                            {/* 月間平均の表示 */}
                             {section.type === 'product' && (
                               <td className="px-4 py-4 text-center text-slate-500 font-bold whitespace-nowrap">
-                                {autoPace > 0 ? (
+                                {isPastMode ? (
+                                  <span className="text-slate-400 font-black">{effectiveMonthlyPace} <span className="text-[8px] font-normal">/月</span></span>
+                                ) : autoPace > 0 ? (
                                   <div className="flex flex-col items-center justify-center">
                                     <span className="text-indigo-600 font-black flex items-center" title="過去30日の出庫実績から自動算出">
                                       {autoPace} <span className="text-[8px] ml-1.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded shadow-sm">自動</span>
@@ -899,90 +949,109 @@ export default function App() {
                               </td>
                             )}
 
-                            {/* 発注ステータス表示 */}
+                            {/* 発注ステータス表示（過去モード時は非表示） */}
                             {section.type === 'product' && (
                               <td className="px-4 py-4 text-center align-top">
-                                <div 
-                                  onClick={() => {
-                                    setOrderModal({ isOpen: true, item, amount: recommendQty || '', date: '' });
-                                  }}
-                                  className="inline-flex flex-col items-center justify-start cursor-pointer p-2 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors group/status relative min-w-[120px]"
-                                >
-                                  {currentOrders.length > 0 ? (
-                                    <>
-                                      {recommendQty > 0 ? (
-                                        <>
-                                          <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
-                                            <Truck className="w-3 h-3 mr-1" /> 発注済 (不足)
+                                {isPastMode ? (
+                                  <span className="text-xs font-bold text-slate-300">-</span>
+                                ) : (
+                                  <div 
+                                    onClick={() => {
+                                      setOrderModal({ isOpen: true, item, amount: recommendQty || '', date: '' });
+                                    }}
+                                    className="inline-flex flex-col items-center justify-start cursor-pointer p-2 rounded-xl hover:bg-indigo-50 border border-transparent hover:border-indigo-100 transition-colors group/status relative min-w-[120px]"
+                                  >
+                                    {currentOrders.length > 0 ? (
+                                      <>
+                                        {recommendQty > 0 ? (
+                                          <>
+                                            <span className="text-[10px] font-black bg-blue-100 text-blue-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
+                                              <Truck className="w-3 h-3 mr-1" /> 発注済 (不足)
+                                            </span>
+                                            <span className="text-[10px] font-black text-red-500 mt-1 whitespace-nowrap">⚠️追加推奨: {recommendQty}</span>
+                                          </>
+                                        ) : (
+                                          <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm mb-1">
+                                            <Truck className="w-3 h-3 mr-1" /> 入荷待ち (十分)
                                           </span>
-                                          <span className="text-[10px] font-black text-red-500 mt-1 whitespace-nowrap">⚠️追加推奨: {recommendQty}</span>
-                                        </>
-                                      ) : (
-                                        <span className="text-[10px] font-black bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm mb-1">
-                                          <Truck className="w-3 h-3 mr-1" /> 入荷待ち (十分)
-                                        </span>
-                                      )}
-                                      
-                                      {/* 内訳の表示 */}
-                                      <div className="w-full mt-1.5 pt-1.5 border-t border-slate-200/50 flex flex-col items-center">
-                                        <span className="text-[10px] font-black text-slate-700">計 {totalOrderedQty} 個</span>
-                                        <div className="text-[8px] text-slate-500 mt-0.5 leading-tight text-center max-h-[40px] overflow-hidden group-hover/status:max-h-none transition-all">
-                                          {currentOrders.map((o, i) => <div key={i}>{o.date}: {o.amount}個</div>)}
+                                        )}
+                                        
+                                        <div className="w-full mt-1.5 pt-1.5 border-t border-slate-200/50 flex flex-col items-center">
+                                          <span className="text-[10px] font-black text-slate-700">計 {totalOrderedQty} 個</span>
+                                          <div className="text-[8px] text-slate-500 mt-0.5 leading-tight text-center max-h-[40px] overflow-hidden group-hover/status:max-h-none transition-all">
+                                            {currentOrders.map((o, i) => <div key={i}>{o.date}: {o.amount}個</div>)}
+                                          </div>
                                         </div>
-                                      </div>
-                                      
-                                      {stockoutRisk && (
-                                        <span className="text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded mt-1.5 border border-red-200 text-center leading-tight shadow-sm w-full">
-                                          ⚠️入庫前に枯渇予測<br/>(約{shortageAmount}個不足)
+                                        
+                                        {stockoutRisk && (
+                                          <span className="text-[10px] font-black text-red-600 bg-red-100 px-1.5 py-0.5 rounded mt-1.5 border border-red-200 text-center leading-tight shadow-sm w-full">
+                                            ⚠️入庫前に枯渇予測<br/>(約{shortageAmount}個不足)
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : isUnderStock ? (
+                                      <>
+                                        <span className="text-[10px] font-black bg-red-100 text-red-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
+                                          <AlertTriangle className="w-3 h-3 mr-1" /> 発注推奨
                                         </span>
-                                      )}
-                                    </>
-                                  ) : isUnderStock ? (
-                                    <>
-                                      <span className="text-[10px] font-black bg-red-100 text-red-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center shadow-sm">
-                                        <AlertTriangle className="w-3 h-3 mr-1" /> 発注推奨
+                                        <span className="text-[10px] font-bold text-slate-500 mt-1">推奨: {recommendQty}</span>
+                                      </>
+                                    ) : (
+                                      <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center">
+                                        <Check className="w-3 h-3 mr-1" /> 良好
                                       </span>
-                                      <span className="text-[10px] font-bold text-slate-500 mt-1">推奨: {recommendQty}</span>
-                                    </>
-                                  ) : (
-                                    <span className="text-[10px] font-black bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full whitespace-nowrap flex items-center">
-                                      <Check className="w-3 h-3 mr-1" /> 良好
-                                    </span>
-                                  )}
-                                  <span className="text-[8px] font-black text-indigo-400 mt-2 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで詳細・追加</span>
-                                </div>
+                                    )}
+                                    <span className="text-[8px] font-black text-indigo-400 mt-2 opacity-0 group-hover/status:opacity-100 transition-opacity whitespace-nowrap">クリックで詳細・追加</span>
+                                  </div>
+                                )}
                               </td>
                             )}
 
-                            {/* 現在庫の直接編集時にも履歴を記録 */}
+                            {/* 現在庫の表示（過去モード時はテキスト、通常時は入力フォーム） */}
                             <td className="px-4 py-4 text-center">
-                              <QuantityInput 
-                                value={item.quantity} 
-                                onUpdate={async (q) => {
-                                  const diff = q - item.quantity;
-                                  if (diff === 0) return;
-                                  await updateItem(section.type, item.id, { prevQuantity: item.quantity, quantity: q });
-                                  const action = diff > 0 ? 'add' : 'sub';
-                                  await addHistoryLog(item, section.type, action, Math.abs(diff), q);
-                                }} 
-                              />
+                              {isPastMode ? (
+                                <span className={`text-2xl font-black ${item.quantity === 0 ? 'text-slate-300' : 'text-indigo-600'}`}>{item.quantity}</span>
+                              ) : (
+                                <QuantityInput 
+                                  value={item.quantity} 
+                                  onUpdate={async (q) => {
+                                    const diff = q - item.quantity;
+                                    if (diff === 0) return;
+                                    await updateItem(section.type, item.id, { prevQuantity: item.quantity, quantity: q });
+                                    const action = diff > 0 ? 'add' : 'sub';
+                                    await addHistoryLog(item, section.type, action, Math.abs(diff), q);
+                                  }} 
+                                />
+                              )}
                             </td>
                             
+                            {/* 操作ボタン（過去モード時は非表示） */}
                             <td className="px-4 py-4 text-center">
-                              <div className="flex items-center justify-center space-x-1">
-                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
-                                  <Minus className="w-3 h-3 mr-1 flex-shrink-0" />出庫
-                                </button>
-                                <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'add', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-xs font-black rounded-lg transition-colors flex items-center border border-emerald-100">
-                                  <Plus className="w-3 h-3 mr-1 flex-shrink-0" />入庫
-                                </button>
-                              </div>
+                              {isPastMode ? (
+                                <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">Locked</span>
+                              ) : (
+                                <div className="flex items-center justify-center space-x-1">
+                                  <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
+                                    <Minus className="w-3 h-3 mr-1 flex-shrink-0" />出庫
+                                  </button>
+                                  <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'add', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-xs font-black rounded-lg transition-colors flex items-center border border-emerald-100">
+                                    <Plus className="w-3 h-3 mr-1 flex-shrink-0" />入庫
+                                  </button>
+                                </div>
+                              )}
                             </td>
 
-                            <td className="px-6 py-4 text-right font-bold text-slate-500 whitespace-nowrap"><EditableCell value={item.price} type="number" format={formatCurrency} onUpdate={(p) => updateItem(section.type, item.id, { price: p })} /></td>
+                            <td className="px-6 py-4 text-right font-bold text-slate-500 whitespace-nowrap">
+                              {isPastMode ? formatCurrency(item.price) : <EditableCell value={item.price} type="number" format={formatCurrency} onUpdate={(p) => updateItem(section.type, item.id, { price: p })} />}
+                            </td>
                             <td className="px-6 py-4 text-right font-black text-slate-900 whitespace-nowrap">{formatCurrency(item.price * item.quantity)}</td>
+                            
                             <td className="px-6 py-4 text-center">
-                              <button onClick={() => removeItem(section.type, item.id)} className="text-slate-300 hover:text-red-500 transition-all p-2 rounded-xl hover:bg-red-50"><Trash2 className="w-5 h-5" /></button>
+                              {isPastMode ? (
+                                <span className="text-slate-200">-</span>
+                              ) : (
+                                <button onClick={() => removeItem(section.type, item.id)} className="text-slate-300 hover:text-red-500 transition-all p-2 rounded-xl hover:bg-red-50"><Trash2 className="w-5 h-5" /></button>
+                              )}
                             </td>
                           </tr>
                         );
@@ -996,7 +1065,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ★ 履歴モーダル */}
+      {/* 履歴モーダル */}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200">
@@ -1065,7 +1134,7 @@ export default function App() {
       )}
 
       {/* CSV Import Modal */}
-      {isImportModalOpen && (
+      {isImportModalOpen && !isPastMode && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-8 py-6 border-b border-emerald-100 flex items-center justify-between bg-emerald-50/50">
@@ -1080,7 +1149,7 @@ export default function App() {
         </div>
       )}
 
-      {isSyncModalOpen && (
+      {isSyncModalOpen && !isPastMode && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border-2 border-amber-500">
             <div className="px-8 py-6 border-b bg-amber-50/50 flex items-center"><AlertTriangle className="w-8 h-8 mr-3 text-amber-500" /><h3 className="text-xl font-black">初期化</h3></div>
@@ -1095,7 +1164,7 @@ export default function App() {
         </div>
       )}
 
-      {isModalOpen && (
+      {isModalOpen && !isPastMode && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-8 py-6 border-b flex items-center justify-between bg-slate-50/50">
@@ -1130,7 +1199,7 @@ export default function App() {
       )}
 
       {/* 出庫・入庫モーダル */}
-      {adjustModal.isOpen && (
+      {adjustModal.isOpen && !isPastMode && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className={`bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 ${adjustModal.action === 'add' ? 'border-emerald-400' : 'border-red-400'}`}>
             <div className={`px-6 py-4 flex items-center justify-between ${adjustModal.action === 'add' ? 'bg-emerald-50' : 'bg-red-50'}`}>
@@ -1157,7 +1226,7 @@ export default function App() {
       )}
 
       {/* 発注記録モーダル */}
-      {orderModal.isOpen && (
+      {orderModal.isOpen && !isPastMode && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-blue-400">
             <div className="px-6 py-4 flex items-center justify-between bg-blue-50">
