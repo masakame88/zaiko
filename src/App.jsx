@@ -783,7 +783,7 @@ export default function App() {
             </div>
 
             <button onClick={() => setIsHistoryModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95">
-              <History className="w-4 h-4" /><span>操作ログ</span>
+              <History className="w-4 h-4" /><span>履歴</span>
             </button>
             <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Upload className="w-4 h-4" /><span>CSV出力</span></button>
             
