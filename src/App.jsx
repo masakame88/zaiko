@@ -4,7 +4,7 @@ import {
   Briefcase, Calendar, Shapes, Edit2, Download, X, 
   GripVertical, Cloud, Check, RefreshCw, AlertCircle,
   Upload, RotateCcw, AlertTriangle, Save, LogOut,
-  ArrowRight, Minus, Truck, ShoppingCart
+  ArrowRight, Minus, Truck, ShoppingCart, History
 } from 'lucide-react';
 
 // Firebase imports
@@ -148,7 +148,7 @@ const EditableCell = memo(({ value, type = "text", onUpdate, format }) => {
 export default function App() {
   const [user, setUser] = useState(null);
   const [inventory, setInventory] = useState({ products: [], materials: [], rawMaterials: [] });
-  const [historyLogs, setHistoryLogs] = useState([]); // ★ 履歴保存用のステート
+  const [historyLogs, setHistoryLogs] = useState([]); // 履歴保存用のステート
   
   const [loading, setLoading] = useState(true);
   const [initializing, setInitializing] = useState(false);
@@ -163,6 +163,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false); 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false); // ★ 履歴モーダル用
   const [importText, setImportText] = useState('');
 
   // 出庫・入庫モーダル
@@ -308,7 +309,7 @@ export default function App() {
       });
     });
 
-    // ★ 履歴データのリスナーを追加
+    // 履歴データのリスナーを追加
     const unsubHistory = onSnapshot(query(getBasePath('history')), (snapshot) => {
       const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setHistoryLogs(logs);
@@ -320,7 +321,18 @@ export default function App() {
     };
   }, [user]);
 
-  // ★ 過去30日間の出庫履歴から「月間平均出荷数」を自動算出
+  // ★ 履歴を新しい順（降順）にソート
+  const sortedHistoryLogs = useMemo(() => {
+    return [...historyLogs].sort((a, b) => b.timestamp - a.timestamp);
+  }, [historyLogs]);
+
+  // ★ タイムスタンプのフォーマット関数
+  const formatDateTime = (timestamp) => {
+    const d = new Date(timestamp);
+    return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  };
+
+  // 過去30日間の出庫履歴から「月間平均出荷数」を自動算出
   const autoMonthlyPaces = useMemo(() => {
     const paces = {};
     const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
@@ -370,7 +382,7 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // ★ 履歴をデータベースに保存する関数
+  // 履歴をデータベースに保存する関数
   const addHistoryLog = async (item, type, action, amount, newQuantity) => {
     if (!user || !isEnvConfigured) return;
     try {
@@ -407,7 +419,7 @@ export default function App() {
       // 1. 在庫の更新
       await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), updates);
       
-      // 2. ★ 裏側で操作履歴（トランザクション）を記録
+      // 2. 裏側で操作履歴（トランザクション）を記録
       await addHistoryLog(adjustModal.item, adjustModal.type, adjustModal.action, amount, newQuantity);
 
       setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' });
@@ -730,6 +742,10 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {/* ★ 履歴ボタンを追加 */}
+            <button onClick={() => setIsHistoryModalOpen(true)} className="flex items-center space-x-1 bg-indigo-50 text-indigo-600 px-3 py-2 rounded-xl border border-indigo-200 hover:bg-indigo-100 transition-all text-sm font-black shadow-sm active:scale-95">
+              <History className="w-4 h-4" /><span>履歴</span>
+            </button>
             <button onClick={exportToCSV} className="flex items-center space-x-1 bg-white text-indigo-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-indigo-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Upload className="w-4 h-4" /><span>CSV出力</span></button>
             <button onClick={() => setIsImportModalOpen(true)} className="flex items-center space-x-1 bg-white text-emerald-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-emerald-300 transition-all text-sm font-bold shadow-sm active:scale-95"><Download className="w-4 h-4" /><span>CSV読込</span></button>
             <button onClick={() => setIsSyncModalOpen(true)} className="flex items-center space-x-1 bg-white text-slate-600 px-3 py-2 rounded-xl border border-slate-300 hover:border-amber-400 transition-all text-sm font-bold shadow-sm active:scale-95"><RotateCcw className="w-4 h-4" /><span>初期化</span></button>
@@ -802,7 +818,7 @@ export default function App() {
                   <tbody className="divide-y divide-slate-100">
                     {section.list.length === 0 ? (<tr><td colSpan="10" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
                       section.list.map((item, idx) => {
-                        // ★ 手動設定値と自動計算値の統合
+                        // 手動設定値と自動計算値の統合
                         const manualPace = item.monthlyPace || 0;
                         const autoPace = autoMonthlyPaces[item.id] || 0;
                         // 過去30日に実績があればそれを優先、なければ手動入力値
@@ -862,7 +878,7 @@ export default function App() {
                             
                             {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
                             
-                            {/* ★ 月間平均の表示（自動計算との連携） */}
+                            {/* 月間平均の表示（自動計算との連携） */}
                             {section.type === 'product' && (
                               <td className="px-4 py-4 text-center text-slate-500 font-bold whitespace-nowrap">
                                 {autoPace > 0 ? (
@@ -938,7 +954,7 @@ export default function App() {
                               </td>
                             )}
 
-                            {/* ★ 現在庫の直接編集時にも履歴を記録 */}
+                            {/* 現在庫の直接編集時にも履歴を記録 */}
                             <td className="px-4 py-4 text-center">
                               <QuantityInput 
                                 value={item.quantity} 
@@ -980,9 +996,77 @@ export default function App() {
         </div>
       </div>
 
+      {/* ★ 履歴モーダル */}
+      {isHistoryModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[150] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200">
+            <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center">
+                <div className="bg-indigo-100 p-2 rounded-xl mr-3">
+                  <History className="w-6 h-6 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800">出入庫の軌跡</h3>
+                  <p className="text-xs font-bold text-slate-500 mt-1">日々の操作履歴が自動的に記録されています。</p>
+                </div>
+              </div>
+              <button onClick={() => setIsHistoryModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-2 bg-white rounded-full shadow-sm border border-slate-100 transition-all active:scale-95">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 bg-slate-50/50">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-wider border-b border-slate-200">
+                      <th className="px-6 py-4 w-40">日時</th>
+                      <th className="px-6 py-4 w-24">種類</th>
+                      <th className="px-6 py-4">品名</th>
+                      <th className="px-6 py-4 text-center w-24">操作</th>
+                      <th className="px-6 py-4 text-right w-24">数量</th>
+                      <th className="px-6 py-4 text-right w-32">操作後の在庫</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {sortedHistoryLogs.length === 0 ? (
+                      <tr><td colSpan="6" className="px-6 py-16 text-center text-slate-400 font-bold bg-white">履歴データがありません</td></tr>
+                    ) : (
+                      sortedHistoryLogs.map(log => {
+                        const typeLabel = log.type === 'product' ? '商品' : log.type === 'material' ? '資材' : '原材料';
+                        const isAdd = log.action === 'add';
+                        return (
+                          <tr key={log.id} className="hover:bg-slate-50/80 transition-colors bg-white group">
+                            <td className="px-6 py-4 text-sm font-bold text-slate-500 whitespace-nowrap">{formatDateTime(log.timestamp)}</td>
+                            <td className="px-6 py-4"><span className={`text-[10px] font-black px-2 py-1 rounded ${log.type === 'product' ? 'bg-emerald-50 text-emerald-600' : log.type === 'material' ? 'bg-amber-50 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>{typeLabel}</span></td>
+                            <td className="px-6 py-4 text-sm font-black text-slate-800">{log.itemName}</td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-black shadow-sm border ${isAdd ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                {isAdd ? <Plus className="w-3 h-3 mr-1" /> : <Minus className="w-3 h-3 mr-1" />}
+                                {isAdd ? '入庫' : '出庫'}
+                              </span>
+                            </td>
+                            <td className={`px-6 py-4 text-right text-lg font-black ${isAdd ? 'text-emerald-600' : 'text-red-600'}`}>
+                              {isAdd ? '+' : '-'}{log.amount}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="text-sm font-bold text-slate-400 mr-2 group-hover:opacity-100 opacity-0 transition-opacity">⇒</span>
+                              <span className="text-base font-black text-slate-700">{log.newQuantity}</span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* CSV Import Modal */}
       {isImportModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-8 py-6 border-b border-emerald-100 flex items-center justify-between bg-emerald-50/50">
               <div className="flex items-center"><Download className="w-8 h-8 mr-3 text-emerald-500" /><h3 className="text-xl font-black">CSV読み込み / 貼り付け</h3></div>
@@ -997,7 +1081,7 @@ export default function App() {
       )}
 
       {isSyncModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border-2 border-amber-500">
             <div className="px-8 py-6 border-b bg-amber-50/50 flex items-center"><AlertTriangle className="w-8 h-8 mr-3 text-amber-500" /><h3 className="text-xl font-black">初期化</h3></div>
             <div className="p-8">
@@ -1012,7 +1096,7 @@ export default function App() {
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[150] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
             <div className="px-8 py-6 border-b flex items-center justify-between bg-slate-50/50">
               <h3 className="text-xl font-black text-slate-800 flex items-center"><Plus className="w-6 h-6 mr-2 text-indigo-500" />新規登録</h3>
@@ -1047,7 +1131,7 @@ export default function App() {
 
       {/* 出庫・入庫モーダル */}
       {adjustModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className={`bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 ${adjustModal.action === 'add' ? 'border-emerald-400' : 'border-red-400'}`}>
             <div className={`px-6 py-4 flex items-center justify-between ${adjustModal.action === 'add' ? 'bg-emerald-50' : 'bg-red-50'}`}>
               <h3 className={`text-lg font-black flex items-center ${adjustModal.action === 'add' ? 'text-emerald-700' : 'text-red-700'}`}>
@@ -1074,7 +1158,7 @@ export default function App() {
 
       {/* 発注記録モーダル */}
       {orderModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border-2 border-blue-400">
             <div className="px-6 py-4 flex items-center justify-between bg-blue-50">
               <h3 className="text-lg font-black flex items-center text-blue-700">
@@ -1129,7 +1213,6 @@ export default function App() {
 
                 {/* 先回りした在庫枯渇予測日（デッドライン：現在庫のみで計算） */}
                 {(() => {
-                  // ★ ここでも自動計算の月間ペースを反映してデッドラインを算出
                   const manualPace = orderModal.item?.monthlyPace || 0;
                   const autoPace = autoMonthlyPaces[orderModal.item?.id] || 0;
                   const effectivePace = autoPace > 0 ? autoPace : manualPace;
