@@ -150,7 +150,7 @@ export default function App() {
   const [inventory, setInventory] = useState({ products: [], materials: [], rawMaterials: [] });
   const [historyLogs, setHistoryLogs] = useState([]); // 履歴保存用のステート
   
-  // ★ 過去時点での在庫を確認するためのステート（タイムトラベル用）
+  // 過去時点での在庫を確認するためのステート（タイムトラベル用）
   const [pastDate, setPastDate] = useState('');
   const isPastMode = !!pastDate;
   
@@ -170,8 +170,8 @@ export default function App() {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
 
-  // 出庫・入庫モーダル
-  const [adjustModal, setAdjustModal] = useState({ isOpen: false, item: null, type: '', action: '', amount: '' });
+  // 出庫・入庫モーダル（★ 日付の指定用プロパティ `date` を追加）
+  const [adjustModal, setAdjustModal] = useState({ isOpen: false, item: null, type: '', action: '', amount: '', date: '' });
   
   // 発注記録モーダル
   const [orderModal, setOrderModal] = useState({ isOpen: false, item: null, amount: '', date: '' });
@@ -193,6 +193,12 @@ export default function App() {
   const [draggableRowId, setDraggableRowId] = useState(null);
 
   const [orderAlertInfo, setOrderAlertInfo] = useState({ isAlertDay: false, message: '' });
+
+  // ★ 今日の日付を YYYY-MM-DD 形式で取得する関数
+  const getTodayDateStr = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -345,7 +351,7 @@ export default function App() {
     return paces;
   }, [historyLogs]);
 
-  // ★ タイムトラベル機能：指定された日付の履歴から逆算して当時の在庫を復元する
+  // タイムトラベル機能：指定された日付の履歴から逆算して当時の在庫を復元する
   const displayInventory = useMemo(() => {
     if (!isPastMode) return inventory;
     
@@ -402,18 +408,21 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  const addHistoryLog = async (item, type, action, amount, newQuantity) => {
+  // ★ 履歴保存関数：カスタムタイムスタンプを受け取れるように拡張
+  const addHistoryLog = async (item, type, action, amount, newQuantity, customTimestamp = null) => {
     if (!user || !isEnvConfigured) return;
     try {
+      const ts = customTimestamp || Date.now();
       const logItem = {
         itemId: item.id, itemName: item.name, type: type, action: action,
         amount: Number(amount), newQuantity: Number(newQuantity),
-        timestamp: Date.now(), dateString: new Date().toLocaleDateString()
+        timestamp: ts, dateString: new Date(ts).toLocaleDateString()
       };
       await addDoc(getBasePath('history'), logItem);
     } catch (error) { console.error("履歴保存エラー:", error); }
   };
 
+  // ★ 出入庫の実行（手動日付のタイムスタンプ計算を追加）
   const executeAdjustment = async (e) => {
     e.preventDefault();
     if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured || isPastMode) return;
@@ -423,12 +432,24 @@ export default function App() {
     if (adjustModal.action === 'sub') { newQuantity = Math.max(0, newQuantity - amount); } 
     else if (adjustModal.action === 'add') { newQuantity = newQuantity + amount; }
 
+    // 手動で指定された日付がある場合、その日の正午（12:00）をタイムスタンプとする
+    let logTimestamp = Date.now();
+    if (adjustModal.date) {
+      const inputDate = new Date(adjustModal.date);
+      const todayDate = new Date();
+      // もし入力された日付が今日と違う場合は、時間を正午に固定して過去/未来に配置する
+      if (inputDate.toDateString() !== todayDate.toDateString()) {
+        inputDate.setHours(12, 0, 0, 0); 
+        logTimestamp = inputDate.getTime();
+      }
+    }
+
     try {
       const updates = { prevQuantity: adjustModal.item.quantity, quantity: newQuantity };
       await updateDoc(getDocPath(adjustModal.type + 's', adjustModal.item.id), updates);
-      await addHistoryLog(adjustModal.item, adjustModal.type, adjustModal.action, amount, newQuantity);
+      await addHistoryLog(adjustModal.item, adjustModal.type, adjustModal.action, amount, newQuantity, logTimestamp);
 
-      setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' });
+      setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '', date: '' });
       showToast(`${adjustModal.action === 'add' ? '入庫' : '出庫'}処理が完了し、履歴に記録されました`);
     } catch (err) { setErrorMessage(`処理エラー: ${err.message}`); }
   };
@@ -575,7 +596,7 @@ export default function App() {
     return { label: `${date.getFullYear()}年${date.getMonth() + 1}月分` };
   }, [targetMonth]);
 
-  // ★ 計算を displayInventory（表示用データ）に切り替え
+  // 計算を displayInventory（表示用データ）に切り替え
   const totals = useMemo(() => {
     const calc = (list) => list.reduce((sum, i) => sum + (i.price * i.quantity), 0);
     const calcByCo = (list, co) => list.filter(i => i.company === co).reduce((sum, i) => sum + (i.price * i.quantity), 0);
@@ -720,7 +741,7 @@ export default function App() {
 
       <div className="max-w-6xl mx-auto space-y-6">
         
-        {/* ★ 過去モード中のアラートバナー */}
+        {/* 過去モード中のアラートバナー */}
         {isPastMode && (
           <div className="bg-indigo-600 border border-indigo-400 p-4 md:p-6 rounded-3xl flex flex-col md:flex-row items-center justify-between shadow-xl mb-6 shadow-indigo-200 animate-in fade-in slide-in-from-top-4">
             <div className="flex items-center mb-4 md:mb-0">
@@ -766,7 +787,6 @@ export default function App() {
           </div>
           
           <div className="flex flex-wrap items-center gap-2">
-            {/* ★ 過去の時点を指定するUI */}
             <div className={`flex items-center space-x-2 px-3 py-2 rounded-xl border shadow-sm relative group transition-all ${isPastMode ? 'bg-indigo-100 border-indigo-300' : 'bg-white border-slate-300 hover:border-indigo-300'}`}>
               <History className={`w-4 h-4 ${isPastMode ? 'text-indigo-600' : 'text-slate-400'}`} />
               <label className={`text-xs font-black whitespace-nowrap cursor-pointer ${isPastMode ? 'text-indigo-800' : 'text-slate-500'}`}>
@@ -776,7 +796,7 @@ export default function App() {
                 type="date" 
                 value={pastDate} 
                 onChange={(e) => setPastDate(e.target.value)} 
-                max={new Date().toISOString().split('T')[0]} // 未来は指定できないようにする
+                max={getTodayDateStr()} // 未来は指定できないようにする
                 className="outline-none bg-transparent font-black text-indigo-600 cursor-pointer text-sm" 
                 title="指定した日の23:59時点の在庫を復元します"
               />
@@ -919,7 +939,6 @@ export default function App() {
                               {isPastMode ? <span className="text-[10px] font-black">{idx + 1}</span> : <GripVertical className="w-5 h-5 mx-auto" />}
                             </td>
                             
-                            {/* ★ 過去モード時は編集不可 */}
                             <td className="px-4 py-4 font-black min-w-[180px]">
                               {isPastMode ? <span className="text-slate-600">{item.name}</span> : <EditableCell value={item.name} onUpdate={(n) => updateItem(section.type, item.id, { name: n })} />}
                             </td>
@@ -936,7 +955,7 @@ export default function App() {
                                     <span className="text-indigo-600 font-black flex items-center" title="過去30日の出庫実績から自動算出">
                                       {autoPace} <span className="text-[8px] ml-1.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded shadow-sm">自動</span>
                                     </span>
-                                    <div className="text-[8px] text-slate-400 mt-1 flex items-center" title="手動設定値">
+                                    <div className="text-[8px] text-slate-400 mt-1 flex items-center" title="手掌握設定値">
                                        手動: <EditableCell value={manualPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
                                     </div>
                                   </div>
@@ -1007,7 +1026,7 @@ export default function App() {
                               </td>
                             )}
 
-                            {/* 現在庫の表示（過去モード時はテキスト、通常時は入力フォーム） */}
+                            {/* 現在庫の表示 */}
                             <td className="px-4 py-4 text-center">
                               {isPastMode ? (
                                 <span className={`text-2xl font-black ${item.quantity === 0 ? 'text-slate-300' : 'text-indigo-600'}`}>{item.quantity}</span>
@@ -1025,16 +1044,16 @@ export default function App() {
                               )}
                             </td>
                             
-                            {/* 操作ボタン（過去モード時は非表示） */}
+                            {/* ★ 操作ボタン（クリック時に今日の日付を初期セット） */}
                             <td className="px-4 py-4 text-center">
                               {isPastMode ? (
                                 <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">Locked</span>
                               ) : (
                                 <div className="flex items-center justify-center space-x-1">
-                                  <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
+                                  <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'sub', amount: '', date: getTodayDateStr() })} className="whitespace-nowrap px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-black rounded-lg transition-colors flex items-center border border-red-100">
                                     <Minus className="w-3 h-3 mr-1 flex-shrink-0" />出庫
                                   </button>
-                                  <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'add', amount: '' })} className="whitespace-nowrap px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-xs font-black rounded-lg transition-colors flex items-center border border-emerald-100">
+                                  <button onClick={() => setAdjustModal({ isOpen: true, item, type: section.type, action: 'add', amount: '', date: getTodayDateStr() })} className="whitespace-nowrap px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-xs font-black rounded-lg transition-colors flex items-center border border-emerald-100">
                                     <Plus className="w-3 h-3 mr-1 flex-shrink-0" />入庫
                                   </button>
                                 </div>
@@ -1198,7 +1217,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 出庫・入庫モーダル */}
+      {/* ★ 出庫・入庫モーダル（日付入力欄を追加） */}
       {adjustModal.isOpen && !isPastMode && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className={`bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 ${adjustModal.action === 'add' ? 'border-emerald-400' : 'border-red-400'}`}>
@@ -1207,16 +1226,22 @@ export default function App() {
                 {adjustModal.action === 'add' ? <Plus className="w-5 h-5 mr-2" /> : <Minus className="w-5 h-5 mr-2" />}
                 {adjustModal.item?.name} の{adjustModal.action === 'add' ? '入庫' : '出庫'}
               </h3>
-              <button onClick={() => setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' })} className="text-slate-400 p-1"><X className="w-5 h-5" /></button>
+              <button onClick={() => setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '', date: '' })} className="text-slate-400 p-1"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-6">
               <form onSubmit={executeAdjustment} className="space-y-6">
-                <div>
-                  <label className="block text-xs font-black text-slate-400 mb-2 text-center uppercase">数量を入力してください</label>
-                  <input type="number" required min="1" autoFocus value={adjustModal.amount} onChange={(e) => setAdjustModal({ ...adjustModal, amount: e.target.value })} className={`w-full px-5 py-4 text-center text-3xl font-black border-2 rounded-2xl outline-none transition-all ${adjustModal.action === 'add' ? 'border-emerald-200 focus:border-emerald-500 text-emerald-700' : 'border-red-200 focus:border-red-500 text-red-700'}`} />
+                <div className="flex space-x-4">
+                  <div className="flex-[3]">
+                    <label className="block text-[10px] font-black text-slate-400 mb-2 text-center uppercase">数量</label>
+                    <input type="number" required min="1" autoFocus value={adjustModal.amount} onChange={(e) => setAdjustModal({ ...adjustModal, amount: e.target.value })} className={`w-full px-3 py-4 text-center text-3xl font-black border-2 rounded-2xl outline-none transition-all ${adjustModal.action === 'add' ? 'border-emerald-200 focus:border-emerald-500 text-emerald-700' : 'border-red-200 focus:border-red-500 text-red-700'}`} />
+                  </div>
+                  <div className="flex-[2]">
+                    <label className="block text-[10px] font-black text-slate-400 mb-2 text-center uppercase">操作日</label>
+                    <input type="date" required value={adjustModal.date} onChange={(e) => setAdjustModal({ ...adjustModal, date: e.target.value })} className={`w-full px-2 py-4 text-center text-sm font-black border-2 rounded-2xl outline-none transition-all ${adjustModal.action === 'add' ? 'border-emerald-200 focus:border-emerald-500 text-emerald-700' : 'border-red-200 focus:border-red-500 text-red-700'}`} />
+                  </div>
                 </div>
                 <div className="flex space-x-3">
-                  <button type="button" onClick={() => setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '' })} className="flex-1 py-3 rounded-xl text-slate-600 bg-slate-100 font-black">キャンセル</button>
+                  <button type="button" onClick={() => setAdjustModal({ isOpen: false, item: null, type: '', action: '', amount: '', date: '' })} className="flex-1 py-3 rounded-xl text-slate-600 bg-slate-100 font-black">キャンセル</button>
                   <button type="submit" className={`flex-1 py-3 rounded-xl text-white font-black shadow-lg ${adjustModal.action === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-red-500 hover:bg-red-600'}`}>確定する</button>
                 </div>
               </form>
