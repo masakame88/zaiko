@@ -64,17 +64,17 @@ const getDocPath = (t, id) => isCanvasEnv
 // --- 初期データ ---
 const INITIAL_DATA = {
   products: [
-    { name: 'KP88携帯用', price: 267.3, prevQuantity: 0, quantity: 1000, monthlyPace: 86, orders: [] },
-    { name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 400, monthlyPace: 55, orders: [] },
-    { name: 'カニパック８８', price: 1211.5, prevQuantity: 0, quantity: 2000, monthlyPace: 273, orders: [] },
-    { name: 'カニパック９０', price: 982.8, prevQuantity: 0, quantity: 600, monthlyPace: 76, orders: [] },
-    { name: 'KPKP280粒', price: 1345.1, prevQuantity: 0, quantity: 200, monthlyPace: 25, orders: [] },
-    { name: 'KPKP 21-S', price: 1437, prevQuantity: 0, quantity: 20, monthlyPace: 3, orders: [] },
-    { name: 'KPKP 21-H', price: 993.1, prevQuantity: 0, quantity: 150, monthlyPace: 17, orders: [] },
-    { name: 'カニパックス-A 60g', price: 1290, prevQuantity: 0, quantity: 100, monthlyPace: 20, orders: [] },
-    { name: 'カニパックアレ', price: 1040, prevQuantity: 0, quantity: 50, monthlyPace: 8, orders: [] },
-    { name: 'KPLR210粒', price: 3253, prevQuantity: 0, quantity: 300, monthlyPace: 46, orders: [] },
-    { name: 'キトナコス', price: 1832.6, prevQuantity: 0, quantity: 100, monthlyPace: 15, orders: [] }
+    { name: 'KP88携帯用', price: 267.3, prevQuantity: 0, quantity: 1000, monthlyPace: 86, paceMode: 'manual', orders: [] },
+    { name: 'カニパック', price: 1165.3, prevQuantity: 0, quantity: 400, monthlyPace: 55, paceMode: 'manual', orders: [] },
+    { name: 'カニパック８８', price: 1211.5, prevQuantity: 0, quantity: 2000, monthlyPace: 273, paceMode: 'manual', orders: [] },
+    { name: 'カニパック９０', price: 982.8, prevQuantity: 0, quantity: 600, monthlyPace: 76, paceMode: 'manual', orders: [] },
+    { name: 'KPKP280粒', price: 1345.1, prevQuantity: 0, quantity: 200, monthlyPace: 25, paceMode: 'manual', orders: [] },
+    { name: 'KPKP 21-S', price: 1437, prevQuantity: 0, quantity: 20, monthlyPace: 3, paceMode: 'manual', orders: [] },
+    { name: 'KPKP 21-H', price: 993.1, prevQuantity: 0, quantity: 150, monthlyPace: 17, paceMode: 'manual', orders: [] },
+    { name: 'カニパックス-A 60g', price: 1290, prevQuantity: 0, quantity: 100, monthlyPace: 20, paceMode: 'manual', orders: [] },
+    { name: 'カニパックアレ', price: 1040, prevQuantity: 0, quantity: 50, monthlyPace: 8, paceMode: 'manual', orders: [] },
+    { name: 'KPLR210粒', price: 3253, prevQuantity: 0, quantity: 300, monthlyPace: 46, paceMode: 'manual', orders: [] },
+    { name: 'キトナコス', price: 1832.6, prevQuantity: 0, quantity: 100, monthlyPace: 15, paceMode: 'manual', orders: [] }
   ],
   materials: [
     { name: 'カニパック(240)6本箱36本箱シール', company: 'ウキシマメディカル', price: 2, prevQuantity: 0, quantity: 4459 },
@@ -170,7 +170,7 @@ export default function App() {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
 
-  // 出庫・入庫モーダル（★ 日付の指定用プロパティ `date` を追加）
+  // 出庫・入庫モーダル（日付の指定用プロパティ `date` を追加）
   const [adjustModal, setAdjustModal] = useState({ isOpen: false, item: null, type: '', action: '', amount: '', date: '' });
   
   // 発注記録モーダル
@@ -194,7 +194,7 @@ export default function App() {
 
   const [orderAlertInfo, setOrderAlertInfo] = useState({ isAlertDay: false, message: '' });
 
-  // ★ 今日の日付を YYYY-MM-DD 形式で取得する関数
+  // 今日の日付を YYYY-MM-DD 形式で取得する関数
   const getTodayDateStr = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -342,12 +342,37 @@ export default function App() {
 
   const autoMonthlyPaces = useMemo(() => {
     const paces = {};
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    const recentSubs = historyLogs.filter(log => log.type === 'product' && log.action === 'sub' && log.timestamp >= thirtyDaysAgo);
+    const HALF_YEAR_DAYS = 180;
+    const halfYearAgo = Date.now() - (HALF_YEAR_DAYS * 24 * 60 * 60 * 1000);
+    
+    // 過去半年の出庫履歴を取得
+    const recentSubs = historyLogs.filter(log => log.type === 'product' && log.action === 'sub' && log.timestamp >= halfYearAgo);
+    
+    // 各商品の出庫合計を計算
+    const totals = {};
     recentSubs.forEach(log => {
-      if (!paces[log.itemId]) paces[log.itemId] = 0;
-      paces[log.itemId] += log.amount;
+      if (!totals[log.itemId]) totals[log.itemId] = 0;
+      totals[log.itemId] += log.amount;
     });
+
+    // 商品ごとの履歴の開始日（一番古い履歴のタイムスタンプ）を取得
+    const firstLogDates = {};
+    historyLogs.forEach(log => {
+      if (!firstLogDates[log.itemId] || log.timestamp < firstLogDates[log.itemId]) {
+        firstLogDates[log.itemId] = log.timestamp;
+      }
+    });
+
+    Object.keys(totals).forEach(itemId => {
+      const firstDate = firstLogDates[itemId] || Date.now();
+      // システムを使い始めてからの経過日数（最大180日）
+      // 導入直後で日数が浅い時に極端な数値になるのを防ぐため、分母の最小値を30日に設定
+      const elapsedDays = Math.min(HALF_YEAR_DAYS, Math.max(30, (Date.now() - firstDate) / (1000 * 60 * 60 * 24)));
+      
+      // 1日あたりの平均出庫数 × 30日 ＝ 月間平均ペース（四捨五入）
+      paces[itemId] = Math.round((totals[itemId] / elapsedDays) * 30);
+    });
+
     return paces;
   }, [historyLogs]);
 
@@ -397,6 +422,7 @@ export default function App() {
     const newItem = {
       name, price: Number(price), prevQuantity: 0, quantity: Number(quantity),
       monthlyPace: type === 'product' ? Number(monthlyPace || 0) : 0,
+      paceMode: 'manual', // ★ 新規追加時は手動モードをデフォルトに
       company: (type === 'product' ? '-' : company),
       createdAt: Date.now(), order: Date.now(),
       orders: [] 
@@ -408,7 +434,7 @@ export default function App() {
     } catch (err) { setErrorMessage(`追加エラー: ${err.message}`); }
   };
 
-  // ★ 履歴保存関数：カスタムタイムスタンプを受け取れるように拡張
+  // 履歴保存関数：カスタムタイムスタンプを受け取れるように拡張
   const addHistoryLog = async (item, type, action, amount, newQuantity, customTimestamp = null) => {
     if (!user || !isEnvConfigured) return;
     try {
@@ -422,7 +448,7 @@ export default function App() {
     } catch (error) { console.error("履歴保存エラー:", error); }
   };
 
-  // ★ 出入庫の実行（手動日付のタイムスタンプ計算を追加）
+  // 出入庫の実行（手動日付のタイムスタンプ計算を追加）
   const executeAdjustment = async (e) => {
     e.preventDefault();
     if (!user || !adjustModal.item || !adjustModal.amount || !isEnvConfigured || isPastMode) return;
@@ -551,7 +577,7 @@ export default function App() {
             price: Number((row[3] || '0').replace(/[,¥"']/g, '')),
             prevQuantity: Number((row[4] || '0').replace(/[,¥"']/g, '')), 
             quantity: Number((row[5] || '0').replace(/[,¥"']/g, '')),
-            monthlyPace: 0, orders: []
+            monthlyPace: 0, paceMode: 'manual', orders: [] // ★ インポート時も手動モードをデフォルトに
           });
           importCount++;
         }
@@ -885,9 +911,11 @@ export default function App() {
                   <tbody className="divide-y divide-slate-100">
                     {section.list.length === 0 ? (<tr><td colSpan="10" className="px-6 py-16 text-center text-slate-300 font-bold">データなし</td></tr>) : (
                       section.list.map((item, idx) => {
+                        // ★ 手動 / 自動 の計算ロジック
+                        const paceMode = item.paceMode || 'manual';
                         const manualPace = item.monthlyPace || 0;
                         const autoPace = autoMonthlyPaces[item.id] || 0;
-                        const effectiveMonthlyPace = autoPace > 0 ? autoPace : manualPace;
+                        const effectiveMonthlyPace = paceMode === 'auto' ? autoPace : manualPace;
                         
                         const orderPoint = effectiveMonthlyPace * 6;
                         const targetInventory = effectiveMonthlyPace * 9;
@@ -945,26 +973,50 @@ export default function App() {
                             
                             {section.type !== 'product' && (<td className="px-4 py-4 text-center"><span className={`px-2 py-1 rounded text-[10px] font-black whitespace-nowrap ${item.company === '当社' ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{item.company}</span></td>)}
                             
-                            {/* 月間平均の表示 */}
+                            {/* ★ 月間平均の表示（手動/自動の切り替えUI） */}
                             {section.type === 'product' && (
-                              <td className="px-4 py-4 text-center text-slate-500 font-bold whitespace-nowrap">
-                                {isPastMode ? (
-                                  <span className="text-slate-400 font-black">{effectiveMonthlyPace} <span className="text-[8px] font-normal">/月</span></span>
-                                ) : autoPace > 0 ? (
-                                  <div className="flex flex-col items-center justify-center">
-                                    <span className="text-indigo-600 font-black flex items-center" title="過去30日の出庫実績から自動算出">
-                                      {autoPace} <span className="text-[8px] ml-1.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded shadow-sm">自動</span>
-                                    </span>
-                                    <div className="text-[8px] text-slate-400 mt-1 flex items-center" title="手掌握設定値">
-                                       手動: <EditableCell value={manualPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col items-center justify-center">
-                                    <EditableCell value={manualPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
-                                    <span className="text-[8px] text-slate-400 mt-1 opacity-50">手動</span>
-                                  </div>
-                                )}
+                              <td className="px-4 py-4 text-center text-slate-500 whitespace-nowrap align-middle">
+                                <div className="flex flex-col items-center justify-center space-y-1.5">
+                                  {isPastMode ? (
+                                    <span className="text-slate-400 font-black">{effectiveMonthlyPace} <span className="text-[8px] font-normal">/月</span></span>
+                                  ) : (
+                                    <>
+                                      {/* 値の表示・編集エリア */}
+                                      <div className={`flex items-center justify-center w-full px-2 py-1 rounded-lg ${paceMode === 'auto' ? 'bg-indigo-50/50' : 'bg-transparent'}`}>
+                                        {paceMode === 'auto' ? (
+                                          <div className="flex flex-col items-center cursor-help" title={`過去半年(最大180日)の出庫実績から自動算出\n(手動設定値: ${manualPace})`}>
+                                            <span className="text-indigo-600 font-black text-lg leading-none">{autoPace}</span>
+                                            <span className="text-[8px] font-black text-indigo-400 mt-0.5">自動算出値</span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex flex-col items-center" title="手動で設定した月間平均">
+                                            <div className="text-slate-700 font-black text-lg leading-none">
+                                              <EditableCell value={manualPace} type="number" onUpdate={(p) => updateItem(section.type, item.id, { monthlyPace: p })} />
+                                            </div>
+                                            <span className="text-[8px] font-black text-slate-400 mt-0.5">手動設定値</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                      
+                                      {/* モード切り替えトグル */}
+                                      <div className="flex items-center bg-slate-100 p-0.5 rounded-md border border-slate-200">
+                                        <button 
+                                          onClick={() => updateItem(section.type, item.id, { paceMode: 'manual' })}
+                                          className={`px-2 py-0.5 text-[9px] font-black rounded-sm transition-all ${paceMode !== 'auto' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-400 hover:text-slate-600'}`}
+                                        >
+                                          手動
+                                        </button>
+                                        <button 
+                                          onClick={() => updateItem(section.type, item.id, { paceMode: 'auto' })}
+                                          className={`px-2 py-0.5 text-[9px] font-black rounded-sm transition-all ${paceMode === 'auto' ? 'bg-indigo-500 shadow-sm text-white' : 'text-slate-400 hover:text-slate-600'}`}
+                                          title={`過去半年(最大180日)の実績に基づく自動計算に切り替え (現在の実績: ${autoPace})`}
+                                        >
+                                          自動
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
                               </td>
                             )}
 
@@ -1044,7 +1096,7 @@ export default function App() {
                               )}
                             </td>
                             
-                            {/* ★ 操作ボタン（クリック時に今日の日付を初期セット） */}
+                            {/* 操作ボタン */}
                             <td className="px-4 py-4 text-center">
                               {isPastMode ? (
                                 <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest bg-slate-100 px-2 py-1 rounded">Locked</span>
@@ -1217,7 +1269,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ★ 出庫・入庫モーダル（日付入力欄を追加） */}
+      {/* 出庫・入庫モーダル（日付入力欄を追加） */}
       {adjustModal.isOpen && !isPastMode && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
           <div className={`bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden border-2 ${adjustModal.action === 'add' ? 'border-emerald-400' : 'border-red-400'}`}>
@@ -1309,7 +1361,7 @@ export default function App() {
                 {(() => {
                   const manualPace = orderModal.item?.monthlyPace || 0;
                   const autoPace = autoMonthlyPaces[orderModal.item?.id] || 0;
-                  const effectivePace = autoPace > 0 ? autoPace : manualPace;
+                  const effectivePace = orderModal.item?.paceMode === 'auto' ? autoPace : manualPace;
 
                   if (orderModal.item && effectivePace > 0) {
                     const currentQty = orderModal.item.quantity;
@@ -1346,7 +1398,7 @@ export default function App() {
                 {(() => {
                   const manualPace = orderModal.item?.monthlyPace || 0;
                   const autoPace = autoMonthlyPaces[orderModal.item?.id] || 0;
-                  const effectivePace = autoPace > 0 ? autoPace : manualPace;
+                  const effectivePace = orderModal.item?.paceMode === 'auto' ? autoPace : manualPace;
 
                   if (orderModal.item && orderModal.date && effectivePace > 0) {
                     const arrival = new Date(orderModal.date);
