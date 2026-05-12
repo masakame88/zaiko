@@ -112,6 +112,7 @@ const QuantityInput = memo(({ value, onUpdate }) => {
       type="number" inputMode="decimal" value={val}
       onChange={(e) => setVal(e.target.value)} onBlur={handleBlur}
       onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+      onWheel={(e) => e.target.blur()} // ★ロック：マウスホイールでの意図せぬ数値変更を防ぐ
       className="w-20 px-2 py-1 text-right text-slate-800 font-bold border border-slate-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none bg-white shadow-sm transition-all"
     />
   );
@@ -131,6 +132,7 @@ const EditableCell = memo(({ value, type = "text", onUpdate, format }) => {
         type={type} value={val} autoFocus
         onChange={(e) => setVal(e.target.value)} onBlur={commitEdit}
         onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+        onWheel={(e) => type === 'number' && e.target.blur()} // ★ロック：月間平均などの数値もスクロールで変更されないようにする
         className="w-full px-2 py-1 text-sm border border-indigo-400 rounded outline-none bg-white"
       />
     );
@@ -1253,14 +1255,14 @@ export default function App() {
                 </div>
                 <div><label className="block text-xs font-black text-slate-400 mb-2">品名</label><input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
                 {type === 'product' && (
-                  <div><label className="block text-xs font-black text-slate-400 mb-2">月間平均出荷数 (初期値)</label><input type="number" required value={monthlyPace} onChange={(e) => setMonthlyPace(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
+                  <div><label className="block text-xs font-black text-slate-400 mb-2">月間平均出荷数 (初期値)</label><input type="number" required value={monthlyPace} onChange={(e) => setMonthlyPace(e.target.value)} onWheel={(e) => e.target.blur()} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
                 )}
                 {type !== 'product' && (
                   <div><label className="block text-xs font-black text-slate-400 mb-2">取扱会社</label><select value={company} onChange={(e) => setCompany(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold"><option value="当社">当社</option><option value="ウキシマメディカル">ウキシマメディカル</option><option value="中日本カプセル">中日本カプセル</option></select></div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-xs font-black text-slate-400 mb-2">単価</label><input type="number" required step="any" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
-                  <div><label className="block text-xs font-black text-slate-400 mb-2">初期数量</label><input type="number" required value={quantity} onChange={(e) => setQuantity(e.target.value)} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
+                  <div><label className="block text-xs font-black text-slate-400 mb-2">単価</label><input type="number" required step="any" value={price} onChange={(e) => setPrice(e.target.value)} onWheel={(e) => e.target.blur()} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
+                  <div><label className="block text-xs font-black text-slate-400 mb-2">初期数量</label><input type="number" required value={quantity} onChange={(e) => setQuantity(e.target.value)} onWheel={(e) => e.target.blur()} className="w-full px-5 py-3 border border-slate-200 rounded-2xl outline-none font-bold" /></div>
                 </div>
                 <button type="submit" className="w-full py-4 px-6 rounded-2xl text-white font-black bg-indigo-600 hover:bg-indigo-700 shadow-xl transition-all">追加する</button>
               </form>
@@ -1285,7 +1287,7 @@ export default function App() {
                 <div className="flex space-x-4">
                   <div className="flex-[3]">
                     <label className="block text-[10px] font-black text-slate-400 mb-2 text-center uppercase">数量</label>
-                    <input type="number" required min="1" autoFocus value={adjustModal.amount} onChange={(e) => setAdjustModal({ ...adjustModal, amount: e.target.value })} className={`w-full px-3 py-4 text-center text-3xl font-black border-2 rounded-2xl outline-none transition-all ${adjustModal.action === 'add' ? 'border-emerald-200 focus:border-emerald-500 text-emerald-700' : 'border-red-200 focus:border-red-500 text-red-700'}`} />
+                    <input type="number" required min="1" autoFocus value={adjustModal.amount} onChange={(e) => setAdjustModal({ ...adjustModal, amount: e.target.value })} onWheel={(e) => e.target.blur()} className={`w-full px-3 py-4 text-center text-3xl font-black border-2 rounded-2xl outline-none transition-all ${adjustModal.action === 'add' ? 'border-emerald-200 focus:border-emerald-500 text-emerald-700' : 'border-red-200 focus:border-red-500 text-red-700'}`} />
                   </div>
                   <div className="flex-[2]">
                     <label className="block text-[10px] font-black text-slate-400 mb-2 text-center uppercase">操作日</label>
@@ -1431,7 +1433,7 @@ export default function App() {
                 <div className="grid grid-cols-2 gap-4 mt-2">
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase">数量</label>
-                    <input type="number" required min="1" value={orderModal.amount} onChange={(e) => setOrderModal({ ...orderModal, amount: e.target.value })} className="w-full px-4 py-3 text-lg font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
+                    <input type="number" required min="1" value={orderModal.amount} onChange={(e) => setOrderModal({ ...orderModal, amount: e.target.value })} onWheel={(e) => e.target.blur()} className="w-full px-4 py-3 text-lg font-black border-2 rounded-xl outline-none transition-all border-blue-200 focus:border-blue-500 text-blue-700" />
                   </div>
                   <div>
                     <label className="block text-[10px] font-black text-slate-400 mb-1.5 uppercase">予定日</label>
